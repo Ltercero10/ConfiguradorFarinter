@@ -7,142 +7,568 @@ import subprocess
 import psutil
 import os
 import webbrowser
+import json
+import re
+import tempfile
+from bs4 import BeautifulSoup
+
 from datetime import datetime
 
-def bytes_to_gb(value):
-    """Convierte bytes a gigabytes"""
-    return round(value / (1024 ** 3), 2)
 
-def get_ram_details():
-    """Obtiene detalles de la RAM"""
+def run_cmd(command):
+    """Ejecuta un comando y devuelve su salida limpia."""
     try:
-        result = subprocess.check_output(
-            'wmic memphysical get maxcapacity, memorydevices',
-            shell=True, text=True, stderr=subprocess.DEVNULL
+        result = subprocess.run(
+            command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="ignore"
         )
-        lines = [line.strip() for line in result.splitlines() if line.strip()]
+        return result.stdout.strip()
+    except Exception:
+        return ""
+def get_windows_display_name():
+    """
+    Obtiene el nombre real de Windows, por ejemplo:
+    Windows 11 Pro for Workstations
+    """
+    try:
+        value = run_cmd('wmic os get Caption')
+        lines = [line.strip() for line in value.splitlines() if line.strip()]
+
         if len(lines) >= 2:
-            parts = lines[1].split()
-            max_gb = round(int(parts[0]) / (1024**2), 2)
-            slots = parts[1]
-            return f"{slots} Slots (Máx. {max_gb} GB)"
-    except:
+            return lines[1].replace("Microsoft", "")
+
+        # respaldo con PowerShell
+        value = run_cmd(
+            'powershell -NoProfile -Command "(Get-CimInstance Win32_OperatingSystem).Caption"'
+        )
+        value = value.strip()
+        if value:
+            return value
+
+    except Exception:
         pass
-    return "No disponible"
+
+    # fallback
+    try:
+        return f"{platform.system()} {platform.release()}"
+    except Exception:
+        return "No disponible"
+
+def get_ram_modules_powershell_json():
+    """
+    Obtiene información de RAM desde PowerShell en formato JSON.
+    Más confiable que parsear texto plano.
+    """
+    try:
+        cmd = (
+            'powershell -NoProfile -ExecutionPolicy Bypass -Command '
+            '"Get-CimInstance Win32_PhysicalMemory | '
+            'Select-Object DeviceLocator,BankLabel,Capacity,Speed,ConfiguredClockSpeed,Manufacturer,PartNumber | '
+            'ConvertTo-Json -Compress"'
+        )
+
+        output = run_cmd(cmd)
+        if not output.strip():
+            return []
+
+        data = json.loads(output)
+
+        # Si solo viene un módulo, PowerShell devuelve dict, no lista
+        if isinstance(data, dict):
+            data = [data]
+
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def format_gb(value_bytes):
+    """Convierte bytes a GB con formato redondeado."""
+    try:
+        gb = value_bytes / (1024 ** 3)
+        return f"{gb:.2f} GB"
+    except Exception:
+        return "No disponible"
+
+
+def get_wmic_single_value(command, header_name=None):
+    """Obtiene un valor simple desde WMIC ignorando encabezados vacíos."""
+    try:
+        output = run_cmd(command)
+        lines = [line.strip() for line in output.splitlines() if line.strip()]
+        if not lines:
+            return "No disponible"
+
+        if header_name and lines[0].lower() == header_name.lower():
+            return lines[1] if len(lines) > 1 else "No disponible"
+
+        if len(lines) >= 2:
+            return lines[1]
+
+        return lines[0]
+    except Exception:
+        return "No disponible"
+
+
+def get_manufacturer():
+    """Obtiene el fabricante del equipo."""
+    value = get_wmic_single_value("wmic computersystem get manufacturer", "manufacturer")
+    return value or "No disponible"
+
+
+def get_model():
+    """Obtiene el modelo del equipo."""
+    value = get_wmic_single_value("wmic computersystem get model", "model")
+    return value or "No disponible"
+
+
+def get_pc_serial():
+    """Obtiene el serial / service tag del equipo."""
+    value = get_wmic_single_value("wmic bios get serialnumber", "serialnumber")
+    return value or "No disponible"
+
+
+def get_domain_or_workgroup():
+    """Obtiene el dominio o grupo de trabajo."""
+    value = get_wmic_single_value("wmic computersystem get domain", "domain")
+    return value or "No disponible"
+
+
+def get_ip_address():
+    """Obtiene la dirección IP principal."""
+    try:
+        hostname = socket.gethostname()
+        ip = socket.gethostbyname(hostname)
+        return ip if ip else "No disponible"
+    except Exception:
+        return "No disponible"
+
+
+def detect_manufacturer():
+    """Devuelve el fabricante en minúsculas para lógica interna."""
+    try:
+        return get_manufacturer().lower()
+    except Exception:
+        return ""
+
+
+def get_ram_slots_info():
+    """
+    Devuelve información de slots de RAM.
+    Ejemplo: '2 / 4 Slots (Máx. 64.00 GB)'
+    """
+    total_slots = "No disponible"
+    used_slots = "No disponible"
+    max_gb = "No disponible"
+
+    try:
+        output = run_cmd("wmic memphysical get memorydevices,maxcapacity")
+        lines = [line.strip() for line in output.splitlines() if line.strip()]
+
+        # Buscar la primera línea con dos valores numéricos
+        for line in lines[1:]:
+            parts = line.split()
+            nums = [p for p in parts if p.isdigit()]
+            if len(nums) >= 2:
+                # En muchos equipos WMIC devuelve: MaxCapacity MemoryDevices
+                max_capacity_kb = int(nums[0])
+                total_slots = nums[1]
+                max_gb = f"{(max_capacity_kb / (1024 ** 2)):.2f} GB"
+                break
+    except Exception:
+        pass
+
+    try:
+        output = run_cmd("wmic memorychip get capacity")
+        lines = [line.strip() for line in output.splitlines() if line.strip()]
+        modules = [line for line in lines[1:] if line.isdigit()]
+        used_slots = str(len(modules))
+    except Exception:
+        pass
+
+    if total_slots == "No disponible" and used_slots == "No disponible":
+        return "No disponible"
+
+    if max_gb != "No disponible":
+        return f"{used_slots} / {total_slots} Slots (Máx. {max_gb})"
+
+    return f"{used_slots} / {total_slots} Slots"
+
+
+
+def get_ram_modules_info():
+    """
+    Devuelve detalle limpio de los módulos RAM instalados.
+    Prioriza PowerShell JSON y usa WMIC solo como respaldo.
+    """
+    modules_info = []
+
+    # ===== intento principal con PowerShell JSON =====
+    ps_modules = get_ram_modules_powershell_json()
+
+    for idx, module in enumerate(ps_modules, start=1):
+        try:
+            capacity = module.get("Capacity")
+            if capacity is None:
+                continue
+
+            if isinstance(capacity, str):
+                capacity = capacity.strip()
+
+            if not str(capacity).isdigit() or int(capacity) <= 0:
+                continue
+
+            size_gb = f"{int(capacity) / (1024 ** 3):.0f} GB"
+
+            locator = (module.get("DeviceLocator") or "").strip()
+            banklabel = (module.get("BankLabel") or "").strip()
+            manufacturer = (module.get("Manufacturer") or "").strip()
+
+            speed = module.get("Speed")
+            configured_speed = module.get("ConfiguredClockSpeed")
+
+            speed_value = ""
+            if str(speed).isdigit():
+                speed_value = str(speed)
+            elif str(configured_speed).isdigit():
+                speed_value = str(configured_speed)
+
+            slot_name = locator or banklabel or f"Módulo {idx}"
+
+            parts = [slot_name, size_gb]
+
+            if speed_value:
+                parts.append(f"{speed_value} MHz")
+
+            if manufacturer:
+                parts.append(manufacturer)
+
+            modules_info.append(", ".join(parts))
+        except Exception:
+            continue
+
+    if modules_info:
+        return modules_info
+
+    # ===== respaldo con WMIC =====
+    try:
+        output = run_cmd(
+            'wmic memorychip get devicelocator,banklabel,capacity,speed,manufacturer /format:list'
+        )
+
+        current = {}
+        for line in output.splitlines():
+            line = line.strip()
+
+            if not line:
+                if current:
+                    capacity = current.get("capacity", "").strip()
+                    if capacity.isdigit() and int(capacity) > 0:
+                        size_gb = f"{int(capacity) / (1024 ** 3):.0f} GB"
+                        slot_name = (
+                            current.get("devicelocator", "").strip()
+                            or current.get("banklabel", "").strip()
+                            or f"Módulo {len(modules_info)+1}"
+                        )
+                        manufacturer = current.get("manufacturer", "").strip()
+                        speed = current.get("speed", "").strip()
+
+                        parts = [slot_name, size_gb]
+                        if speed.isdigit():
+                            parts.append(f"{speed} MHz")
+                        if manufacturer:
+                            parts.append(manufacturer)
+
+                        modules_info.append(", ".join(parts))
+                    current = {}
+                continue
+
+            if "=" in line:
+                key, value = line.split("=", 1)
+                current[key.strip().lower()] = value.strip()
+
+        if current:
+            capacity = current.get("capacity", "").strip()
+            if capacity.isdigit() and int(capacity) > 0:
+                size_gb = f"{int(capacity) / (1024 ** 3):.0f} GB"
+                slot_name = (
+                    current.get("devicelocator", "").strip()
+                    or current.get("banklabel", "").strip()
+                    or f"Módulo {len(modules_info)+1}"
+                )
+                manufacturer = current.get("manufacturer", "").strip()
+                speed = current.get("speed", "").strip()
+
+                parts = [slot_name, size_gb]
+                if speed.isdigit():
+                    parts.append(f"{speed} MHz")
+                if manufacturer:
+                    parts.append(manufacturer)
+
+                modules_info.append(", ".join(parts))
+    except Exception:
+        pass
+
+    return modules_info if modules_info else ["No disponible"]
 
 def get_extra_disks():
-    """Obtiene información de discos adicionales (no C:)"""
+    """Obtiene información de discos adicionales distintos de C:."""
     try:
         discos = []
         for part in psutil.disk_partitions():
-            if "fixed" in part.opts and part.mountpoint != "C:\\":
-                usage = psutil.disk_usage(part.mountpoint)
-                info = f"{part.mountpoint} ({bytes_to_gb(usage.total)} GB)"
-                discos.append(info)
+            mount = part.mountpoint.upper()
+            if "FIXED" in part.opts.upper() and mount != "C:\\":
+                try:
+                    usage = psutil.disk_usage(part.mountpoint)
+                    discos.append(f"{part.mountpoint} ({format_gb(usage.total)})")
+                except Exception:
+                    continue
         return ", ".join(discos) if discos else "Ninguno detectado"
-    except:
-        return "No disponible"
-
-def get_pc_serial():
-    """Obtiene el número de serie del equipo"""
-    try:
-        result = subprocess.check_output(
-            'wmic bios get serialnumber',
-            shell=True,
-            text=True,
-            stderr=subprocess.DEVNULL
-        )
-        lines = [line.strip() for line in result.splitlines() if line.strip()]
-        if len(lines) >= 2:
-            return lines[1]
-    except Exception:
-        pass
-    return "No disponible"
-
-def get_pc_model():
-    """Obtiene el modelo del equipo"""
-    try:
-        result = subprocess.check_output(
-            'wmic computersystem get manufacturer,model',
-            shell=True,
-            text=True,
-            stderr=subprocess.DEVNULL
-        )
-        lines = [line.strip() for line in result.splitlines() if line.strip()]
-        if len(lines) >= 2:
-            return lines[1]
-    except Exception:
-        pass
-    return "No disponible"
-
-def get_domain_or_workgroup():
-    """Obtiene el dominio o grupo de trabajo"""
-    try:
-        result = subprocess.check_output(
-            'wmic computersystem get domain',
-            shell=True,
-            text=True,
-            stderr=subprocess.DEVNULL
-        )
-        lines = [line.strip() for line in result.splitlines() if line.strip()]
-        if len(lines) >= 2:
-            return lines[1]
-    except Exception:
-        pass
-    return "No disponible"
-
-def get_ip_address():
-    """Obtiene la dirección IP"""
-    try:
-        hostname = socket.gethostname()
-        return socket.gethostbyname(hostname)
     except Exception:
         return "No disponible"
-    
-def detect_manufacturer():
+
+def get_ram_modules_dict():
+    result = {}
+    modules = get_ram_modules_info()
+
+    if not modules or modules == ["No disponible"]:
+        result["Detalle RAM"] = "No disponible"
+        return result
+
+    for i, module_text in enumerate(modules, start=1):
+        result[f"RAM módulo {i}"] = module_text
+
+    return result
+
+def get_battery_info():
+    """
+    Obtiene el estado de la batería.
+    En equipos de escritorio devuelve 'No aplica'.
+    """
     try:
-        result = subprocess.check_output(
-            'wmic computersystem get manufacturer',
-            shell=True,
-            text=True,
-            stderr=subprocess.DEVNULL
-        )
-        lines = [line.strip() for line in result.splitlines() if line.strip()]
-        if len(lines) >= 2:
-            return lines[1].lower()
+        battery = psutil.sensors_battery()
+
+        if battery is None:
+            return {
+                "Batería": "No aplica",
+                "Estado de energía": "No aplica",
+                "Autonomía estimada": "No aplica"
+            }
+
+        percent = f"{round(battery.percent)}%"
+        plugged = "Conectada" if battery.power_plugged else "Desconectada"
+
+        if battery.secsleft in (-1, -2):
+            time_left = "No disponible"
+        else:
+            hours = battery.secsleft // 3600
+            minutes = (battery.secsleft % 3600) // 60
+            time_left = f"{hours}h {minutes}m"
+
+        return {
+            "Batería": percent,
+            "Estado de energía": plugged,
+            "Autonomía estimada": time_left
+        }
+
     except Exception:
-        pass
-    return ""    
+        # Fallback simple con PowerShell
+        try:
+            percent = run_cmd(
+                r'powershell -Command "(Get-CimInstance Win32_Battery).EstimatedChargeRemaining"'
+            ).strip()
+
+            if percent and percent.isdigit():
+                return {
+                    "Batería": f"{percent}%",
+                    "Estado de energía": "No disponible",
+                    "Autonomía estimada": "No disponible"
+                }
+        except Exception:
+            pass
+
+        return {
+            "Batería": "No disponible",
+            "Estado de energía": "No disponible",
+            "Autonomía estimada": "No disponible"
+        }
+
+def generate_battery_report():
+    temp_dir = tempfile.gettempdir()
+    report_path = os.path.join(temp_dir, "battery_report.html")
+
+    result = subprocess.run(
+        ["powercfg", "/batteryreport", "/output", report_path],
+        capture_output=True,
+        text=True,
+        shell=False
+    )
+
+    if result.returncode != 0 or not os.path.exists(report_path):
+        return None
+
+    return report_path
+
+def parse_battery_report(report_path):
+    """
+    Extrae información útil del reporte generado por powercfg /batteryreport
+    usando búsqueda más estable sobre el HTML.
+    """
+    data = {
+        "design_capacity": "No disponible",
+        "full_charge_capacity": "No disponible",
+    }
+
+    try:
+        with open(report_path, "r", encoding="utf-8", errors="ignore") as f:
+            html = f.read()
+
+        # Buscar capacidades directamente en el HTML/texto
+        design_match = re.search(
+            r"DESIGN CAPACITY.*?(\d[\d,\.]*)\s*mWh",
+            html,
+            re.IGNORECASE | re.DOTALL
+        )
+
+        full_match = re.search(
+            r"FULL CHARGE CAPACITY.*?(\d[\d,\.]*)\s*mWh",
+            html,
+            re.IGNORECASE | re.DOTALL
+        )
+
+        if design_match:
+            data["design_capacity"] = f"{design_match.group(1)} mWh"
+
+        if full_match:
+            data["full_charge_capacity"] = f"{full_match.group(1)} mWh"
+
+        return data
+
+    except Exception as e:
+        print("Error parseando battery report:", e)
+        return data
+
+def extract_capacity_number(text):
+    """
+    Convierte textos como '47,520 mWh' o '47520 mWh' a entero 47520
+    """
+    if not text or text == "No disponible":
+        return None
+
+    match = re.search(r'([\d,]+)', text)
+    if not match:
+        return None
+
+    number_str = match.group(1).replace(",", "")
+    try:
+        return int(number_str)
+    except ValueError:
+        return None
+
+
 
 def get_system_info():
-    """Obtiene toda la información del sistema"""
+    """Obtiene toda la información del sistema."""
     try:
         vm = psutil.virtual_memory()
         disk = psutil.disk_usage("C:\\")
         boot_time = datetime.fromtimestamp(psutil.boot_time()).strftime("%Y-%m-%d %H:%M:%S")
 
-        return {
+        manufacturer = get_manufacturer()
+        model = get_model()
+        serial = get_pc_serial()
+        ram_slots = get_ram_slots_info()
+        ram_modules = get_ram_modules_info()
+        battery_info = get_battery_info()
+        battery_full_info = get_battery_full_info()
+
+        info = {
             "Nombre del equipo": socket.gethostname(),
             "Usuario actual": getpass.getuser(),
-            "Sistema operativo": f"{platform.system()} {platform.release()}",
+            "Sistema operativo": get_windows_display_name(),
             "Versión": platform.version(),
             "Arquitectura": platform.machine(),
             "Procesador": platform.processor() or "No disponible",
-            "RAM total (GB)": bytes_to_gb(vm.total),
-            "RAM disponible (GB)": bytes_to_gb(vm.available),
-            "Capacidad RAM / Slots": get_ram_details(),
-            "Disco total C: (GB)": bytes_to_gb(disk.total),
-            "Disco libre C: (GB)": bytes_to_gb(disk.free),
+            "Fabricante": manufacturer,
+            "Modelo": model,
+            "Service Tag / Serial": serial,
+            "RAM total": format_gb(vm.total),
+            "RAM disponible": format_gb(vm.available),
+            "Slots RAM": ram_slots,
+            "Detalle RAM": " | ".join(ram_modules),
+            "Disco total C:": format_gb(disk.total),
+            "Disco libre C:": format_gb(disk.free),
             "Discos adicionales": get_extra_disks(),
             "IP": get_ip_address(),
             "Dominio / Grupo": get_domain_or_workgroup(),
-            "Fabricante / Modelo": get_pc_model(),
-            "Service Tag / Serial": get_pc_serial(),
-            "Último arranque": boot_time
+            "Último arranque": boot_time,
         }
+
+        info.update(battery_info)
+        info.update(battery_full_info)
+        return info
+
     except Exception as e:
         return {"Error": str(e)}
-    
+
+def get_battery_full_info():
+    """
+    Obtiene solo los datos clave de batería:
+    - Capacidad de diseño
+    - Carga completa actual
+    - Vida de batería (%)
+    """
+    result = {
+        "Capacidad de diseño": "No aplica",
+        "Carga completa actual": "No aplica",
+        "Vida de batería": "No aplica",
+    }
+
+    try:
+        battery = psutil.sensors_battery()
+        if battery is None:
+            return result
+    except Exception:
+        pass
+
+    try:
+        report_path = generate_battery_report()
+        if not report_path:
+            return {
+                "Capacidad de diseño": "No disponible",
+                "Carga completa actual": "No disponible",
+                "Vida de batería": "No disponible",
+            }
+
+        parsed = parse_battery_report(report_path)
+
+        design_text = parsed.get("design_capacity", "No disponible")
+        full_text = parsed.get("full_charge_capacity", "No disponible")
+
+        design_num = extract_capacity_number(design_text)
+        full_num = extract_capacity_number(full_text)
+
+        vida = "No disponible"
+        if design_num and full_num and design_num > 0:
+            porcentaje = (full_num / design_num) * 100
+            vida = f"{porcentaje:.1f}%"
+
+        return {
+            "Capacidad de diseño": design_text,
+            "Carga completa actual": full_text,
+            "Vida de batería": vida,
+        }
+
+    except Exception:
+        return {
+            "Capacidad de diseño": "No disponible",
+            "Carga completa actual": "No disponible",
+            "Vida de batería": "No disponible",
+        }
 def open_driver_support_page():
     manufacturer = detect_manufacturer()
     serial = get_pc_serial()
@@ -191,3 +617,227 @@ def update_drivers():
         return False, "Para HP se recomienda usar HP Support Assistant."
 
     return False, "Fabricante no identificado. Se recomienda usar Windows Update o la herramienta oficial del fabricante."
+
+def export_system_info_html(info, output_path=None):
+    """
+    Exporta la información relevante del equipo a un archivo HTML bonito.
+    """
+    logo_path = os.path.abspath(os.path.join(os.getcwd(), "assets", "Logo-Farinter.png"))
+    logo_uri = f"file:///{logo_path.replace(os.sep, '/')}" if os.path.exists(logo_path) else ""
+
+    if output_path is None:
+        reports_dir = os.path.join(os.getcwd(), "logs")
+        os.makedirs(reports_dir, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_path = os.path.join(reports_dir, f"reporte_equipo_{timestamp}.html")
+
+    def esc(value):
+        return str(value).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    # Solo campos relevantes
+    fields_to_show = [
+        "Usuario actual",
+        "Sistema operativo",
+        "Procesador",
+        "Fabricante",
+        "Modelo",
+        "Service Tag / Serial",
+        "RAM total",
+        "Slots RAM",
+        "Detalle RAM",
+        "Disco total C:",
+        "Disco libre C:",
+        "Capacidad de diseño",
+        "Carga completa actual",
+        "Vida de batería",
+    ]
+
+    filtered_info = {k: info.get(k, "No disponible") for k in fields_to_show}
+
+    battery_life = str(filtered_info.get("Vida de batería", "No disponible")).replace("%", "").strip()
+    battery_badge_class = "badge-gray"
+
+    try:
+        battery_value = float(battery_life)
+        if battery_value >= 80:
+            battery_badge_class = "badge-green"
+        elif battery_value >= 60:
+            battery_badge_class = "badge-yellow"
+        else:
+            battery_badge_class = "badge-red"
+    except Exception:
+        pass
+
+    rows = ""
+    for key, value in filtered_info.items():
+        if key == "Vida de batería":
+            value_html = f'<span class="badge {battery_badge_class}">{esc(value)}</span>'
+        else:
+            value_html = esc(value)
+
+        rows += f"""
+        <tr>
+            <td class="label">{esc(key)}</td>
+            <td class="value">{value_html}</td>
+        </tr>
+        """
+
+    logo_html = f'<img src="{logo_uri}" alt="Logo Farinter" class="logo">' if logo_uri else ""
+
+    html = f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Reporte de equipo</title>
+<style>
+    body {{
+        font-family: "Segoe UI", Arial, sans-serif;
+        background: #eef2f7;
+        color: #1f2937;
+        margin: 0;
+        padding: 24px;
+    }}
+
+    .container {{
+        max-width: 1000px;
+        margin: 0 auto;
+        background: #ffffff;
+        border: 1px solid #dbe2ea;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+    }}
+
+    .header {{
+        background: linear-gradient(135deg, #16324f 0%, #1f3b5b 100%);
+        color: white;
+        padding: 24px 28px;
+    }}
+
+    .header-left {{
+        display: flex;
+        align-items: center;
+        gap: 22px;
+    }}
+
+    .logo {{
+        width: 120px;
+        height: 120px;
+        object-fit: contain;
+        background: transparent;
+        border-radius: 0;
+        padding: 0;
+        display: block;
+    }}
+
+    .header h1 {{
+        margin: 0 0 6px 0;
+        font-size: 30px;
+        font-weight: 700;
+    }}
+
+    .header p {{
+        margin: 0;
+        color: #dbe7f3;
+        font-size: 16px;
+    }}
+
+    .section {{
+        padding: 24px 28px;
+    }}
+
+    .meta {{
+        margin-bottom: 18px;
+        color: #6b7280;
+        font-size: 14px;
+    }}
+
+    table {{
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 15px;
+    }}
+
+    td {{
+        border: 1px solid #d1d5db;
+        padding: 12px 14px;
+        vertical-align: top;
+    }}
+
+    .label {{
+        width: 34%;
+        font-weight: 700;
+        background: #f8fafc;
+    }}
+
+    .value {{
+        background: #ffffff;
+    }}
+
+    .badge {{
+        display: inline-block;
+        padding: 6px 10px;
+        border-radius: 999px;
+        font-weight: 700;
+        font-size: 13px;
+    }}
+
+    .badge-green {{
+        background: #dcfce7;
+        color: #166534;
+    }}
+
+    .badge-yellow {{
+        background: #fef3c7;
+        color: #92400e;
+    }}
+
+    .badge-red {{
+        background: #fee2e2;
+        color: #991b1b;
+    }}
+
+    .badge-gray {{
+        background: #e5e7eb;
+        color: #374151;
+    }}
+
+    .footer {{
+        padding: 0 28px 24px 28px;
+        color: #6b7280;
+        font-size: 13px;
+    }}
+</style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="header-left">
+                {logo_html}
+                <div>
+                    <h1>Reporte de equipo</h1>
+                    <p>AutoInstaller Farinter Corporativo</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="meta">
+                Generado el {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+            </div>
+
+            <table>
+                {rows}
+            </table>
+        </div>
+
+        <div class="footer">
+            Reporte generado automáticamente desde el módulo de información del equipo.
+        </div>
+    </div>
+</body>
+</html>
+"""
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(html)
+
+    return output_path

@@ -4,6 +4,16 @@ from tkinter import messagebox
 
 from gui.login_dialog import NetworkLoginDialog
 
+
+_network_session = {
+    "connected": False,
+    "share": "",
+    "domain": "",
+    "username": "",
+    "password": "",
+}
+
+
 def disconnect_share(share_path: str):
     """
     Desconecta una ruta de red si ya existe una sesión previa.
@@ -13,7 +23,7 @@ def disconnect_share(share_path: str):
             ["net", "use", share_path, "/delete", "/y"],
             capture_output=True,
             text=True,
-            shell=True
+            shell=False
         )
     except Exception:
         pass
@@ -27,7 +37,9 @@ def connect_to_share(share_path: str, username: str, password: str, domain: str 
     full_user = f"{domain}\\{username}" if domain else username
 
     cmd = [
-        "net", "use", share_path,
+        "net",
+        "use",
+        share_path,
         password,
         f"/user:{full_user}",
         "/persistent:no"
@@ -37,7 +49,7 @@ def connect_to_share(share_path: str, username: str, password: str, domain: str 
         cmd,
         capture_output=True,
         text=True,
-        shell=True
+        shell=False
     )
 
     if result.returncode == 0:
@@ -55,14 +67,30 @@ def verify_share_access(share_path: str):
         return Path(share_path).exists()
     except Exception:
         return False
-    
-def ensure_network_access(root, share_path: str):
+
+
+def get_active_network_session():
+    return _network_session.copy()
+
+
+def clear_network_session():
+    global _network_session
+
+    if _network_session["connected"] and _network_session["share"]:
+        disconnect_share(_network_session["share"])
+
+    _network_session = {
+        "connected": False,
+        "share": "",
+        "domain": "",
+        "username": "",
+        "password": "",
+    }
+
+
+def ensure_network_access(root, share_path: str, force_login: bool = False):
     dialog = NetworkLoginDialog(root, default_share=share_path)
     root.wait_window(dialog)
-
-
-    #dialog = NetworkLoginDialog(root, default_share=share_path)
-    #root.wait_window(dialog)
 
     if not dialog.result:
         return False

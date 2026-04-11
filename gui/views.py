@@ -3,10 +3,14 @@ import os
 from tkinter import messagebox
 from core.config import load_json_file
 from core.logger import global_logger as logger
-from utils.system_info import get_system_info
 from gui.components import create_profile_card, create_info_table
-from utils.system_info import (get_system_info,open_driver_support_page,update_drivers)
+from utils.system_info import (get_system_info,open_driver_support_page,update_drivers,export_system_info_html)
 from tkinter import ttk
+from gui.domain_view import DomainView
+from utils.admin_utils import is_admin
+from gui.components import AppFormDialog
+from core.catalog_manager import CatalogManager
+
 # ============= VISTA INICIO =============
 def show_home(app):
     """Muestra la pantalla de inicio"""
@@ -132,7 +136,6 @@ def show_applications(app):
     app.current_apps = []
     app.current_mode_name = ""
 
-    
     app.show_installation_ui()
 
     tk.Label(
@@ -152,24 +155,151 @@ def show_applications(app):
     ).pack(anchor="w", pady=(0, 12))
 
     try:
-        data = load_json_file("catalogo_apps.json")
-        apps = data.get("apps", [])
+        apps = app.catalog.get_apps()
     except Exception as e:
         tk.Label(
             app.content_area,
-            text=f"No se pudo cargar catalogo_apps.json: {e}",
+            text=f"No se pudo cargar el catálogo de aplicaciones: {e}",
             bg="#ffffff",
             fg="red",
             font=("Segoe UI", 10)
         ).pack(anchor="w")
         return
 
-    vars_list = []
-
+    # Botonera superior
     actions_frame = tk.Frame(app.content_area, bg="#ffffff")
-    actions_frame.pack(fill="x", pady=(0, 8))
+    actions_frame.pack(fill="x", pady=(0, 10))
 
-    # Crear área de selección con scroll
+    left_actions = tk.Frame(actions_frame, bg="#ffffff")
+    left_actions.pack(side="left")
+
+    right_actions = tk.Frame(actions_frame, bg="#ffffff")
+    right_actions.pack(side="right")
+
+    def toggle_all(value: bool):
+        for nombre, item in app.app_vars.items():
+            item["var"].set(value)
+
+            app_item = item["app"]
+            if app_item.get("requiere_pais"):
+                widget = app.app_country_widgets.get(nombre)
+                if widget:
+                    if value:
+                        widget.pack(anchor="w", fill="x", pady=(4, 0))
+                    else:
+                        widget.pack_forget()
+
+                    for pais_var in app.app_country_vars.get(nombre, {}).values():
+                        pais_var.set(False)
+
+        app.update_selected_count()
+
+    def load_selected_apps():
+        selected_apps = []
+
+        for nombre, item in app.app_vars.items():
+            if not item["var"].get():
+                continue
+
+            app_item = dict(item["app"])
+
+            if app_item.get("requiere_pais"):
+                paises_marcados = [
+                    pais
+                    for pais, pais_var in app.app_country_vars.get(nombre, {}).items()
+                    if pais_var.get()
+                ]
+
+                if not paises_marcados:
+                    messagebox.showwarning(
+                        "Selección requerida",
+                        f"Debe seleccionar al menos un país para {nombre}."
+                    )
+                    return
+
+                app_item["paises_seleccionados"] = paises_marcados
+
+            selected_apps.append(app_item)
+
+        if not selected_apps:
+            messagebox.showwarning(
+                "Selección requerida",
+                "Debe seleccionar al menos una aplicación."
+            )
+            return
+
+        app.current_apps = selected_apps
+        app.current_mode_name = "Instalación personalizada"
+        app.update_selected_count()
+        app.set_status(f"{len(app.current_apps)} aplicaciones cargadas para instalación")
+
+    tk.Button(
+        left_actions,
+        text="Seleccionar todas",
+        bg="#0d6efd",
+        fg="white",
+        relief="flat",
+        cursor="hand2",
+        font=("Segoe UI", 9, "bold"),
+        command=lambda: toggle_all(True)
+    ).pack(side="left", padx=(0, 8))
+
+    tk.Button(
+        left_actions,
+        text="Limpiar selección",
+        bg="#6b7280",
+        fg="white",
+        relief="flat",
+        cursor="hand2",
+        font=("Segoe UI", 9, "bold"),
+        command=lambda: toggle_all(False)
+    ).pack(side="left", padx=(0, 8))
+
+    tk.Button(
+        left_actions,
+        text="Cargar selección",
+        bg="#198754",
+        fg="white",
+        relief="flat",
+        cursor="hand2",
+        font=("Segoe UI", 9, "bold"),
+        command=load_selected_apps
+    ).pack(side="left")
+
+    tk.Button(
+        right_actions,
+        text="Agregar aplicación",
+        bg="#0d6efd",
+        fg="white",
+        relief="flat",
+        cursor="hand2",
+        font=("Segoe UI", 9, "bold"),
+        command=app.open_add_app_dialog
+    ).pack(side="left", padx=(0, 8))
+
+    tk.Button(
+        right_actions,
+        text="Editar aplicación",
+        bg="#f59e0b",
+        fg="white",
+        relief="flat",
+        cursor="hand2",
+        font=("Segoe UI", 9, "bold"),
+        command=app.open_select_app_to_edit
+    ).pack(side="left", padx=(0, 8))
+
+    tk.Button(
+        right_actions,
+        text="Eliminar aplicación",
+        bg="#dc3545",
+        fg="white",
+        relief="flat",
+        cursor="hand2",
+        font=("Segoe UI", 9, "bold"),
+        command=app.open_select_app_to_delete
+    ).pack(side="left")
+
+    # Contenedor principal con scroll
     container = tk.Frame(app.content_area, bg="#ffffff")
     container.pack(fill="both", expand=False)
 
@@ -183,92 +313,147 @@ def show_applications(app):
     )
 
     canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-    canvas.configure(yscrollcommand=scrollbar_apps.set, height=260)
+    canvas.configure(yscrollcommand=scrollbar_apps.set, height=300)
 
     canvas.pack(side="left", fill="both", expand=True)
     scrollbar_apps.pack(side="right", fill="y")
 
-    def refresh_selection_label():
-        selected_count = sum(1 for _, var in vars_list if var.get())
-        selection_label.config(text=f"Aplicaciones seleccionadas: {selected_count}")
+    # Dos columnas: básicas y corporativas
+    columns_frame = tk.Frame(scrollable_frame, bg="#ffffff")
+    columns_frame.pack(fill="x", expand=True, padx=5, pady=5)
 
-    def toggle_all(value: bool):
-        for _, var in vars_list:
-            var.set(value)
-        refresh_selection_label()
+    basicas_frame = tk.LabelFrame(
+        columns_frame,
+        text="Básicas",
+        bg="#ffffff",
+        fg="#1f2937",
+        font=("Segoe UI", 10, "bold"),
+        padx=12,
+        pady=10
+    )
+    basicas_frame.pack(side="left", fill="both", expand=True, padx=(0, 8), anchor="n")
 
-    def load_selected_apps():
-        selected_apps = [app for app, var in vars_list if var.get()]
+    corporativas_frame = tk.LabelFrame(
+        columns_frame,
+        text="Corporativos",
+        bg="#ffffff",
+        fg="#1f2937",
+        font=("Segoe UI", 10, "bold"),
+        padx=12,
+        pady=10
+    )
+    corporativas_frame.pack(side="left", fill="both", expand=True, padx=(8, 0), anchor="n")
 
-        if not selected_apps:
-            messagebox.showwarning("Selección requerida", "Debe seleccionar al menos una aplicación.")
-            return
+    basicas = []
+    corporativas = []
 
-        app.current_apps = selected_apps
-        app.current_mode_name = "Instalación personalizada"
-        selection_label.config(text=f"Aplicaciones seleccionadas: {len(app.current_apps)}")
-        app.set_status(f"{len(app.current_apps)} aplicaciones cargadas para instalación")
+    for app_item in apps:
+        categoria = app_item.get("categoria", "basica").lower()
+        if categoria == "corporativa":
+            corporativas.append(app_item)
+        else:
+            basicas.append(app_item)
 
-    # Botones de acción
-    tk.Button(
-        actions_frame,
-        text="Seleccionar todas",
-        bg="#0d6efd",
-        fg="white",
-        relief="flat",
-        cursor="hand2",
-        font=("Segoe UI", 9, "bold"),
-        command=lambda: toggle_all(True)
-    ).pack(side="left", padx=(0, 8))
+    # Reiniciar estructuras
+    app.app_vars = {}
+    app.app_country_vars = {}
+    app.app_country_widgets = {}
+    app.apps_data = apps
 
-    tk.Button(
-        actions_frame,
-        text="Limpiar selección",
-        bg="#6b7280",
-        fg="white",
-        relief="flat",
-        cursor="hand2",
-        font=("Segoe UI", 9, "bold"),
-        command=lambda: toggle_all(False)
-    ).pack(side="left", padx=(0, 8))
+    def build_checkbox_list(parent_frame, apps_group):
+        for idx, app_item in enumerate(apps_group):
+            nombre = app_item.get("nombre", "Aplicación")
+            var = tk.BooleanVar(value=False)
 
-    tk.Button(
-        actions_frame,
-        text="Cargar selección",
-        bg="#198754",
-        fg="white",
-        relief="flat",
-        cursor="hand2",
-        font=("Segoe UI", 9, "bold"),
-        command=load_selected_apps
-    ).pack(side="left")
+            app.app_vars[nombre] = {
+                "var": var,
+                "app": app_item
+            }
 
-    # Crear checkboxes para cada aplicación
-    for idx, app_item in enumerate(apps):
-        var = tk.BooleanVar(value=False)
-        chk = tk.Checkbutton(
-            scrollable_frame,
-            text=app_item.get("nombre", "Aplicación"),
-            variable=var,
-            bg="#ffffff",
-            fg="#111827",
-            font=("Segoe UI", 10),
-            activebackground="#ffffff",
-            command=refresh_selection_label
-        )
-        chk.grid(row=idx // 2, column=idx % 2, sticky="w", padx=12, pady=6)
-        vars_list.append((app_item, var))
+            item_frame = tk.Frame(parent_frame, bg="#ffffff")
+            item_frame.pack(anchor="w", fill="x", pady=4)
 
-    selection_label = tk.Label(
+            def on_toggle(current_app=app_item, current_name=nombre):
+                if current_app.get("requiere_pais"):
+                    widget = app.app_country_widgets.get(current_name)
+                    if widget:
+                        if app.app_vars[current_name]["var"].get():
+                            widget.pack(anchor="w", fill="x", pady=(4, 0))
+                        else:
+                            widget.pack_forget()
+                            for pais_var in app.app_country_vars[current_name].values():
+                                pais_var.set(False)
+                app.update_selected_count()
+
+            chk = tk.Checkbutton(
+                item_frame,
+                text=nombre,
+                variable=var,
+                bg="#ffffff",
+                fg="#111827",
+                font=("Segoe UI", 10),
+                activebackground="#ffffff",
+                anchor="w",
+                command=on_toggle
+            )
+            chk.pack(anchor="w", fill="x")
+
+            if app_item.get("requiere_pais"):
+                country_frame = tk.Frame(item_frame, bg="#ffffff")
+                app.app_country_vars[nombre] = {}
+
+                tk.Label(
+                    country_frame,
+                    text="País(es):",
+                    bg="#ffffff",
+                    fg="#374151",
+                    font=("Segoe UI", 9, "bold")
+                ).pack(anchor="w", padx=(25, 0), pady=(0, 3))
+
+                countries_list_frame = tk.Frame(country_frame, bg="#ffffff")
+                countries_list_frame.pack(anchor="w", padx=(35, 0))
+
+                for pais in app_item.get("paises", []):
+                    pais_var = tk.BooleanVar(value=False)
+                    app.app_country_vars[nombre][pais] = pais_var
+
+                    tk.Checkbutton(
+                        countries_list_frame,
+                        text=pais,
+                        variable=pais_var,
+                        bg="#ffffff",
+                        fg="#111827",
+                        font=("Segoe UI", 9),
+                        activebackground="#ffffff",
+                        anchor="w"
+                    ).pack(anchor="w")
+
+                app.app_country_widgets[nombre] = country_frame
+    build_checkbox_list(basicas_frame, basicas)
+    build_checkbox_list(corporativas_frame, corporativas)
+
+    app.selected_count_label = tk.Label(
         app.content_area,
         text="Aplicaciones seleccionadas: 0",
         bg="#ffffff",
         fg="#374151",
         font=("Segoe UI", 10, "bold")
     )
-    selection_label.pack(anchor="w", pady=(10, 0))
+    app.selected_count_label.pack(anchor="w", pady=(10, 0))
 
+    app.update_selected_count()
+    app.set_status("Vista de aplicaciones")
 
+def show_domain(app):
+    """Muestra la vista base del módulo de dominio"""
+    app.set_active_menu(app.btn_menu_dominio)
+    app.clear_content()
+    app.hide_installation_ui()
+
+    domain_view = DomainView(app.content_area)
+    domain_view.pack(fill="both", expand=True)
+
+    app.set_status("Vista de dominio")
 # ============= VISTA EQUIPO =============
 def show_equipo(app):
     """Muestra la información del equipo"""
@@ -342,6 +527,14 @@ def show_equipo(app):
         except Exception as e:
             messagebox.showerror("Error", str(e))
 
+    def on_export_html():
+        try:
+            report_path = export_system_info_html(info)
+            os.startfile(report_path)
+            app.set_status("Reporte HTML generado correctamente")
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo exportar el reporte HTML.\n\n{e}")
+
     tk.Button(
         app.content_area,
         text="Actualizar información",
@@ -388,6 +581,17 @@ def show_equipo(app):
         font=("Segoe UI", 10, "bold"),
         command=on_update_drivers
     ).pack(side="left")
+
+    tk.Button(
+        buttons_frame,
+        text="Exportar HTML",
+        bg="#0d6efd",
+        fg="white",
+        relief="flat",
+        cursor="hand2",
+        font=("Segoe UI", 10, "bold"),
+        command=on_export_html
+    ).pack(side="left", padx=(8, 0))
 
     info_label = tk.Label(
         app.content_area,

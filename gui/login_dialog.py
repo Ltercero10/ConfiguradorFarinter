@@ -3,11 +3,12 @@ from tkinter import ttk, messagebox
 
 
 class NetworkLoginDialog(tk.Toplevel):
-    def __init__(self, parent, default_share=""):
+    def __init__(self, parent, default_share="", default_domain="FARINTER.NET"):
         super().__init__(parent)
-        self.title("Acceso a recurso compartido")
-        self.geometry("520x530")
-        self.minsize(520, 530)
+        self.title("Inicio de sesión")
+        self.geometry("470x380")
+        self.minsize(470, 380)
+        self.maxsize(470, 380)
         self.resizable(False, False)
         self.transient(parent)
         self.grab_set()
@@ -15,20 +16,25 @@ class NetworkLoginDialog(tk.Toplevel):
 
         self.result = None
 
+        # Se mantienen internamente, pero no se muestran
         self.share_var = tk.StringVar(value=default_share)
-        self.domain_var = tk.StringVar(value="FARINTER")
+        self.domain_var = tk.StringVar(value=default_domain)
+
         self.user_var = tk.StringVar()
         self.pass_var = tk.StringVar()
         self.show_password = tk.BooleanVar(value=False)
+        self.status_var = tk.StringVar(value="Ingrese sus credenciales corporativas.")
 
         self._center_window(parent)
         self._build_ui()
 
+        self.protocol("WM_DELETE_WINDOW", self.on_cancel)
+
     def _center_window(self, parent):
         self.update_idletasks()
 
-        width = 520
-        height = 430
+        width = 470
+        height = 320
 
         if parent and parent.winfo_exists():
             parent.update_idletasks()
@@ -65,36 +71,33 @@ class NetworkLoginDialog(tk.Toplevel):
         )
         card.grid(row=0, column=0, sticky="nsew")
         card.grid_columnconfigure(0, weight=1)
-        card.grid_rowconfigure(1, weight=1)
 
         header = tk.Frame(card, bg="white")
-        header.grid(row=0, column=0, sticky="ew", padx=24, pady=(20, 10))
+        header.grid(row=0, column=0, sticky="ew", padx=28, pady=(24, 10))
 
         tk.Label(
             header,
-            text="Conexión a carpeta compartida",
-            font=("Segoe UI", 15, "bold"),
+            text="Inicio de sesión de red",
+            font=("Segoe UI", 16, "bold"),
             bg="white",
             fg="#1f2937"
         ).pack(anchor="w")
 
         tk.Label(
             header,
-            text="Ingrese sus credenciales de red para acceder a los instaladores corporativos.",
-            font=("Segoe UI", 9),
+            text="Ingrese sus credenciales corporativas para continuar.",
+            font=("Segoe UI", 10),
             bg="white",
             fg="#6b7280",
-            wraplength=440,
+            wraplength=390,
             justify="left"
         ).pack(anchor="w", pady=(6, 0))
 
         body = tk.Frame(card, bg="white")
-        body.grid(row=1, column=0, sticky="nsew", padx=24, pady=(8, 12))
+        body.grid(row=1, column=0, sticky="nsew", padx=28, pady=(4, 8))
         body.grid_columnconfigure(0, weight=1)
 
-        self._field(body, "Ruta compartida", self.share_var, 0)
-        self._field(body, "Dominio", self.domain_var, 2)
-        self._field(body, "Usuario", self.user_var, 4)
+        self._field(body, "Usuario", self.user_var, 0)
 
         tk.Label(
             body,
@@ -102,10 +105,10 @@ class NetworkLoginDialog(tk.Toplevel):
             font=("Segoe UI", 10, "bold"),
             bg="white",
             fg="#374151"
-        ).grid(row=6, column=0, sticky="w", pady=(12, 6))
+        ).grid(row=2, column=0, sticky="w", pady=(14, 6))
 
         password_frame = tk.Frame(body, bg="white")
-        password_frame.grid(row=7, column=0, sticky="ew")
+        password_frame.grid(row=3, column=0, sticky="ew")
         password_frame.grid_columnconfigure(0, weight=1)
 
         self.password_entry = ttk.Entry(
@@ -124,22 +127,21 @@ class NetworkLoginDialog(tk.Toplevel):
 
         tk.Label(
             body,
-            text="Use su usuario de red corporativa. Ejemplo: FARINTER\\usuario",
-            font=("Segoe UI", 8),
+            textvariable=self.status_var,
+            font=("Segoe UI", 9),
             bg="white",
-            fg="#6b7280"
-        ).grid(row=8, column=0, sticky="w", pady=(8, 0))
+            fg="#2563eb",
+            justify="left",
+            wraplength=390
+        ).grid(row=4, column=0, sticky="w", pady=(12, 0))
 
         footer = tk.Frame(card, bg="white")
-        footer.grid(row=2, column=0, sticky="ew", padx=24, pady=(0, 20))
+        footer.grid(row=2, column=0, sticky="ew", padx=28, pady=(8, 22))
         footer.grid_columnconfigure(0, weight=1)
-
-        left_space = tk.Frame(footer, bg="white")
-        left_space.grid(row=0, column=0, sticky="ew")
 
         ttk.Button(
             footer,
-            text="Conectar",
+            text="Ingresar",
             command=self.on_connect
         ).grid(row=0, column=1, padx=(0, 10))
 
@@ -161,7 +163,7 @@ class NetworkLoginDialog(tk.Toplevel):
             font=("Segoe UI", 10, "bold"),
             bg="white",
             fg="#374151"
-        ).grid(row=row, column=0, sticky="w", pady=(12, 6))
+        ).grid(row=row, column=0, sticky="w", pady=(10, 6))
 
         ttk.Entry(parent, textvariable=variable).grid(row=row + 1, column=0, sticky="ew")
 
@@ -174,10 +176,10 @@ class NetworkLoginDialog(tk.Toplevel):
         user = self.user_var.get().strip()
         password = self.pass_var.get()
 
-        if not share or not user or not password:
+        if not user or not password:
             messagebox.showwarning(
                 "Campos requeridos",
-                "Complete la ruta compartida, el usuario y la contraseña."
+                "Ingrese su usuario y contraseña."
             )
             return
 

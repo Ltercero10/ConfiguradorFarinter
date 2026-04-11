@@ -7,7 +7,8 @@
       "base": "instaladores",
       "ruta": "Basicas/ChromeSetup.exe",
       "args": "/silent /install",
-      "copiar_a_temp": true
+      "copiar_a_temp": true,
+      "categoria": "basica"
     },
     {
       "nombre": "7-Zip",
@@ -15,23 +16,83 @@
       "base": "instaladores",
       "ruta": "Basicas/7zip.msi",
       "args": "",
-      "copiar_a_temp": true
+      "copiar_a_temp": true,
+      "categoria": "basica"
     },
     {
-      "nombre": "Adobe Reader",
-      "tipo": "exe",
+      "nombre": "LDCOM",
+      "tipo": "copy_folder",
       "base": "instaladores",
-      "ruta": "Basicas/ReaderSetup.exe",
-      "args": "/sAll",
-      "copiar_a_temp": true
+      "categoria": "corporativa",
+      "copiar_a_temp": false,
+      "requiere_pais": true,
+      "paises": [
+        "Honduras",
+        "Nicaragua",
+        "El Salvador",
+        "Costa Rica",
+        "Guatemala"
+      ],
+      "paises_config": {
+        "Honduras": {
+          "origen": "\\\\10.0.5.157\\Soporte\\Instaladores OFICINAS\\Instaladores LDCOM\\Honduras\\Productivo\\LogicalData_HN",
+          "destino": "C:\\Program Files\\LogicalData_HN"
+        },
+        "Nicaragua": {
+          "origen": "\\\\10.0.5.157\\Soporte\\Instaladores OFICINAS\\Instaladores LDCOM\\Nicaragua\\Productivo\\LogicalData_NIC",
+          "destino": "C:\\Program Files\\LogicalData_NIC"
+        },
+        "El Salvador": {
+          "origen": "\\\\10.0.5.157\\Soporte\\Instaladores OFICINAS\\Instaladores LDCOM\\El Salvador\\Productivo\\LogicalData_SV",
+          "destino": "C:\\Program Files\\LogicalData_SV"
+        },
+        "Costa Rica": {
+          "origen": "\\\\10.0.5.157\\Soporte\\Instaladores OFICINAS\\Instaladores LDCOM\\Costa Rica\\Productivo\\LogicalData_CR",
+          "destino": "C:\\Program Files\\LogicalData_CR"
+        },
+        "Guatemala": {
+          "origen": "\\\\10.0.5.157\\Soporte\\Instaladores OFICINAS\\Instaladores LDCOM\\Guatemala\\Productivo\\LogicalData_GT",
+          "destino": "C:\\Program Files\\LogicalData_GT"
+        }
+      }
     },
     {
-      "nombre": "AnyDesk",
-      "tipo": "exe",
+      "nombre": "LDFAS",
+      "tipo": "copy_folder",
       "base": "instaladores",
-      "ruta": "Basicas/AnyDesk.exe",
-      "args": "--install \"C:\\Program Files (x86)\\AnyDesk\" --start-with-win --silent",
-      "copiar_a_temp": true
+      "categoria": "corporativa",
+      "copiar_a_temp": false,
+      "requiere_pais": true,
+      "paises": [
+        "Honduras",
+        "Nicaragua",
+        "El Salvador",
+        "Costa Rica",
+        "Guatemala"
+      ],
+      "paises_config": {
+        "Honduras": {
+          "origen": "\\\\10.0.5.157\\Soporte\\Instaladores OFICINAS\\Instaladores LDCOM\\Honduras\\Productivo\\LogicalData_HN",
+          "destino": "C:\\Program Files (x86)\\LogicalData_HN"
+        },
+        "Nicaragua": {
+          "origen": "\\\\10.0.5.157\\Soporte\\Instaladores OFICINAS\\Instaladores LDCOM\\NICARAGUA\\PRODUCTIVO\\LogicalData_NC",
+          "destino": "C:\\Program Files (x86)\\LogicalData_NC"
+        },
+        "El Salvador": {
+          "origen": "\\\\10.0.5.157\\Soporte\\Instaladores OFICINAS\\Instaladores LDCOM\\El Salvador\\Productivo\\LogicalData_SV",
+          "destino": "C:\\Program Files (x86)\\LogicalData_SV"
+        },
+        "Costa Rica": {
+          "origen": "\\\\10.0.5.157\\Soporte\\Instaladores OFICINAS\\Instaladores LDCOM\\Costa Rica Arboleda\\Productivo\\LogicalData_CR",
+          "destino": "C:\\Program Files (x86)\\LogicalData_CR"
+        },
+        "Guatemala": {
+          "origen": "\\\\10.0.5.157\\Soporte\\Instaladores OFICINAS\\Instaladores LDCOM\\Guatemala\\Productivo\\LogicalData_GT",
+          "destino": "C:\\Program Files (x86)\\LogicalData_GT"
+        }
+
+      }
     }
   ]
 }
