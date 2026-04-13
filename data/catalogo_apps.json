@@ -2,24 +2,6 @@
   "modo": "Catálogo general",
   "apps": [
     {
-      "nombre": "Google Chrome",
-      "tipo": "exe",
-      "base": "instaladores",
-      "ruta": "Basicas/ChromeSetup.exe",
-      "args": "/silent /install",
-      "copiar_a_temp": true,
-      "categoria": "basica"
-    },
-    {
-      "nombre": "7-Zip",
-      "tipo": "msi",
-      "base": "instaladores",
-      "ruta": "Basicas/7zip.msi",
-      "args": "",
-      "copiar_a_temp": true,
-      "categoria": "basica"
-    },
-    {
       "nombre": "LDCOM",
       "tipo": "copy_folder",
       "base": "instaladores",
@@ -91,8 +73,34 @@
           "origen": "\\\\10.0.5.157\\Soporte\\Instaladores OFICINAS\\Instaladores LDCOM\\Guatemala\\Productivo\\LogicalData_GT",
           "destino": "C:\\Program Files (x86)\\LogicalData_GT"
         }
-
       }
+    },
+    {
+      "nombre": "Anydesk",
+      "tipo": "exe",
+      "base": "soporte",
+      "categoria": "basica",
+      "ruta": "//10.0.5.157/Soporte/AnyDesk.exe",
+      "args": "",
+      "copiar_a_temp": true
+    },
+    {
+      "nombre": "PDF",
+      "tipo": "exe",
+      "base": "soporte",
+      "categoria": "basica",
+      "ruta": "//10.0.5.157/Soporte/Instaladores OFICINAS/Instaladores LDCOM/Utilitarios (FAVOR NO DEJAR COPIADOS ESTOS ARCHIVOS EN LOS EQUIPOS PRINCIPALMENTE LA CARPETA DE VPN-TIENE CREDENCIALES)/pdf24-creator-10.1.1.exe",
+      "args": "",
+      "copiar_a_temp": true
+    },
+    {
+      "nombre": "Crystal Disk",
+      "tipo": "exe",
+      "base": "soporte",
+      "categoria": "basica",
+      "ruta": "//10.0.5.157/Soporte/Instaladores OFICINAS/Instaladores LDCOM/Utilitarios (FAVOR NO DEJAR COPIADOS ESTOS ARCHIVOS EN LOS EQUIPOS PRINCIPALMENTE LA CARPETA DE VPN-TIENE CREDENCIALES)/CrystalDiskInfo8_9_0a.exe",
+      "args": "",
+      "copiar_a_temp": true
     }
   ]
 }

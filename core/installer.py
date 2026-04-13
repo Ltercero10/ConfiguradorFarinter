@@ -6,6 +6,7 @@ import time
 import shutil
 import tempfile
 from tkinter import messagebox
+import signal
 
 from core.config import load_config
 from core.logger import global_logger as logger
@@ -69,6 +70,9 @@ class Installer:
 
                 self.callbacks["update_progress"](index)
 
+                if "progress_set_value" in self.callbacks:
+                    self.callbacks["progress_set_value"](index, total_apps)
+
             total_time = time.time() - start_time
             self._show_final_summary(
                 mode_name,
@@ -84,7 +88,6 @@ class Installer:
             self._show_error(str(e))
         finally:
             self.callbacks["enable_run_button"]()
-
     def _process_app(self, app, index, total_apps, rutas_base):
         """Procesa una aplicación individual"""
 
@@ -92,42 +95,62 @@ class Installer:
         tipo = app.get("tipo", "exe").lower()
 
         self.callbacks["set_status"](f"Instalando {index}/{total_apps}: {nombre}")
+
+        if "progress_set_app" in self.callbacks:
+            self.callbacks["progress_set_app"](f"{nombre}")
+
+        if "progress_set_status" in self.callbacks:
+            self.callbacks["progress_set_status"](f"Instalando {index} de {total_apps}")
+
+        if "progress_append_log" in self.callbacks:
+            self.callbacks["progress_append_log"](f"Iniciando instalación de {nombre}", "info")
+
         logger.log(f"[{index}/{total_apps}] Procesando: {nombre}")
 
         if app.get("requiere_pais"):
-            return self._process_country_app(app, rutas_base)
+            result = self._process_country_app(app, rutas_base)
+        else:
+            base = app.get("base", "")
+            ruta_relativa = app.get("ruta", "")
+            args = app.get("args", "")
+            post = app.get("post", "")
+            post_cmd = app.get("post_cmd", "")
+            copiar_a_temp = app.get("copiar_a_temp", True)
 
-        base = app.get("base", "")
-        ruta_relativa = app.get("ruta", "")
-        args = app.get("args", "")
-        post = app.get("post", "")
-        post_cmd = app.get("post_cmd", "")
-        copiar_a_temp = app.get("copiar_a_temp", True)
+            if tipo in ["carpeta", "copy_folder"]:
+                ruta = self._build_path(base, ruta_relativa, rutas_base)
+                if not ruta:
+                    result = "skipped"
+                else:
+                    logger.log(f"Ruta origen: {ruta}")
 
-        if tipo in ["carpeta", "copy_folder"]:
-            ruta = self._build_path(base, ruta_relativa, rutas_base)
-            if not ruta:
-                return "skipped"
+                    if not self._check_source_access(ruta):
+                        result = "skipped"
+                    else:
+                        result = self._install_folder(app, ruta)
+            else:
+                ruta = self._build_path(base, ruta_relativa, rutas_base)
+                if not ruta:
+                    result = "skipped"
+                else:
+                    logger.log(f"Ruta de red: {ruta}")
 
-            logger.log(f"Ruta origen: {ruta}")
+                    if not self._check_source_access(ruta):
+                        result = "skipped"
+                    else:
+                        result = self._install_executable(
+                            app, ruta, tipo, args, post, post_cmd, copiar_a_temp
+                        )
 
-            if not self._check_source_access(ruta):
-                return "skipped"
+        if "progress_append_log" in self.callbacks:
+            if result == "success":
+                self.callbacks["progress_append_log"](f"{nombre}: instalación completada", "success")
+            elif result == "failed":
+                self.callbacks["progress_append_log"](f"{nombre}: instalación fallida", "error")
+            elif result == "skipped":
+                self.callbacks["progress_append_log"](f"{nombre}: instalación omitida", "normal")
 
-            return self._install_folder(app, ruta)
-
-        ruta = self._build_path(base, ruta_relativa, rutas_base)
-        if not ruta:
-            return "skipped"
-
-        logger.log(f"Ruta de red: {ruta}")
-
-        if not self._check_source_access(ruta):
-            return "skipped"
-
-        return self._install_executable(
-            app, ruta, tipo, args, post, post_cmd, copiar_a_temp
-        )
+        return result
 
     def _process_country_app(self, app, rutas_base):
         """Procesa aplicaciones que requieren uno o varios países"""
@@ -298,7 +321,8 @@ class Installer:
         else:
             logger.log("Ejecutando desde la ubicación original")
 
-        install_success = self._run_installer(ruta_ejecucion, tipo, args, nombre)
+        # IMPORTANTE: siempre asignar install_success aquí
+        install_success = self._run_installer(ruta_ejecucion, tipo, args, nombre, app)
 
         if not install_success:
             self._cleanup_temp(ruta_local)
@@ -315,8 +339,124 @@ class Installer:
 
         logger.log("")
         return "success"
+    
+    def _get_silent_candidates(self, app):
+        """
+        Devuelve una lista de argumentos candidatos para instalaciones silenciosas.
+        Si la app ya trae args definidos, no se usa esta lista.
+        """
+        nombre = (app.get("nombre") or "").lower()
+        ruta = (app.get("ruta") or "").lower()
 
-    def _run_installer(self, ruta_ejecucion, tipo, args, nombre):
+        # Prioridades por programas comunes conocidos
+        if "anydesk" in nombre or "anydesk" in ruta:
+            return [
+                '--install "C:\\Program Files (x86)\\AnyDesk" --start-with-win --silent',
+                "--silent",
+                "/silent",
+                "/S",
+                ""
+            ]
+
+        if "chrome" in nombre or "chromesetup" in ruta:
+            return [
+                "/silent /install",
+                "/install",
+                "/silent",
+                ""
+            ]
+
+        if "realvnc" in nombre or "vnc" in ruta:
+            return [
+                "/silent /suppressmsgboxes /norestart",
+                "/silent",
+                "/S",
+                ""
+            ]
+
+        if "outputmessenger" in nombre or "output messenger" in nombre:
+            return [
+                "/silent /suppressmsgboxes /norestart",
+                "/silent",
+                "/S",
+                ""
+            ]
+
+        # Genéricos para EXE desconocidos
+        return [
+            "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART",
+            "/SILENT /SUPPRESSMSGBOXES /NORESTART",
+            "/S",
+            "/silent",
+            "/quiet",
+            "/q",
+            "-s",
+            ""
+        ]
+        
+
+    def _run_command_with_timeout(self, command, timeout=20):
+        """
+        Ejecuta un comando y lo corta si excede el tiempo.
+        Retorna: (returncode, timed_out)
+        """
+        try:
+            process = subprocess.Popen(command, shell=True)
+
+            try:
+                process.wait(timeout=timeout)
+                return process.returncode, False
+            except subprocess.TimeoutExpired:
+                logger.log(f"Tiempo excedido ({timeout}s). Intentando finalizar proceso...")
+                try:
+                    process.terminate()
+                except Exception:
+                    pass
+
+                try:
+                    process.wait(timeout=10)
+                except Exception:
+                    try:
+                        process.kill()
+                    except Exception:
+                        pass
+
+                return -999, True
+
+        except Exception as e:
+            logger.log(f"Error ejecutando comando: {e}")
+            return -1, False
+
+    def _try_exe_silent_install(self, app, ruta_ejecucion, nombre):
+        """
+        Prueba varios argumentos comunes para EXE cuando args viene vacío.
+        """
+        candidates = self._get_silent_candidates(app)
+
+        logger.log("No se definieron argumentos. Se probarán parámetros comunes automáticamente...")
+
+        for index, candidate in enumerate(candidates, start=1):
+            args_label = candidate if candidate else "[sin argumentos]"
+            logger.log(f"Intento {index}/{len(candidates)} con argumentos: {args_label}")
+
+            command = f'"{ruta_ejecucion}" {candidate}'.strip()
+            code, timed_out = self._run_command_with_timeout(command, timeout=20)
+
+            if timed_out:
+                logger.log("El instalador excedió el tiempo permitido. Se probará el siguiente conjunto.")
+                continue
+
+            if code in (0, 1641, 3010):
+                logger.log(f"Instalación completada con argumentos: {args_label}")
+                app["args"] = candidate
+                return True
+
+            logger.log(f"El intento finalizó con código {code}. Se probará el siguiente conjunto.")
+
+        logger.log(f"No se encontró un conjunto de argumentos funcional para {nombre}.")
+        return False
+
+    def _run_installer(self, ruta_ejecucion, tipo, args, nombre, app=None):
         """Ejecuta el instalador y retorna True si tiene éxito"""
         try:
             if tipo == "msi":
@@ -329,17 +469,34 @@ class Installer:
                 logger.log(f"Log MSI: {msi_log}")
                 result = subprocess.run(comando, shell=True)
                 code = result.returncode
-            else:
-                logger.log("Instalando ejecutable...")
-                result = subprocess.run(f'"{ruta_ejecucion}" {args}', shell=True)
-                code = result.returncode
 
-            if code != 0:
-                logger.log(f"Error al instalar {nombre} (code {code})")
-                return False
+                if code not in (0, 1641, 3010):
+                    logger.log(f"Error al instalar {nombre} (code {code})")
+                    return False
 
-            logger.log(f"Instalación completada correctamente: {nombre}")
-            return True
+                logger.log(f"Instalación completada correctamente: {nombre}")
+                return True
+
+            logger.log("Instalando ejecutable...")
+
+            # Si ya viene args definido, respetarlo
+            if args and args.strip():
+                command = f'"{ruta_ejecucion}" {args}'.strip()
+                code, timed_out = self._run_command_with_timeout(command, timeout=20)
+
+                if timed_out:
+                    logger.log(f"El instalador excedió el tiempo permitido: {nombre}")
+                    return False
+
+                if code not in (0, 1641, 3010):
+                    logger.log(f"Error al instalar {nombre} (code {code})")
+                    return False
+
+                logger.log(f"Instalación completada correctamente: {nombre}")
+                return True
+
+            # Si no trae args, probar candidatos
+            return self._try_exe_silent_install(app or {}, ruta_ejecucion, nombre)
 
         except Exception as e:
             logger.log(f"Excepción durante la instalación: {e}")
@@ -386,6 +543,7 @@ class Installer:
         self.callbacks
         logger.clear()
         self.callbacks["set_status"]("Preparando instalación...")
+        
 
     def _log_start(self, mode_name, total_apps, log_file_path):
         """Registra el inicio de la instalación en el log"""

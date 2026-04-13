@@ -1,10 +1,11 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 import threading
-
+from gui.components import create_menu_button, InstallProgressDialog
 from core.catalog_manager import CatalogManager
 from core.logger import Logger, global_logger
 from core.installer import Installer
+from gui.components import create_menu_button, InstallProgressDialog
 from gui.views import (
     show_home,
     show_profiles,
@@ -24,6 +25,7 @@ class AutoInstallerApp:
 
     def __init__(self):
         self.root = tk.Tk()
+        self.progress_dialog = None
 
         try:
             self.root.iconbitmap(resource_path("assets/favicon.ico"))
@@ -59,15 +61,47 @@ class AutoInstallerApp:
 
         # Configurar callbacks para el instalador
         installer_callbacks = {
+
             'set_status': self.set_status,
             'update_progress': self.update_progress,
             'enable_run_button': self.enable_run_button,
-            'show_summary': self.show_summary
+            'show_summary': self.show_summary,
+            'progress_set_app': self.progress_set_app,
+            'progress_set_status': self.progress_set_status,
+            'progress_append_log': self.progress_append_log,
+            'progress_set_value': self.progress_set_value,
         }
+        
         self.installer = Installer(installer_callbacks)
 
         # Mostrar vista inicial
         self.show_home()
+    
+    def show_progress_dialog(self):
+        if self.progress_dialog is None or not self.progress_dialog.winfo_exists():
+            self.progress_dialog = InstallProgressDialog(self.root)
+            self.progress_dialog.grab_set()
+
+    def close_progress_dialog(self):
+        if self.progress_dialog and self.progress_dialog.winfo_exists():
+            self.progress_dialog.destroy()
+            self.progress_dialog = None
+
+    def progress_set_app(self, text):
+        if self.progress_dialog and self.progress_dialog.winfo_exists():
+            self.root.after(0, lambda: self.progress_dialog.set_current_app(text))
+
+    def progress_set_status(self, text):
+        if self.progress_dialog and self.progress_dialog.winfo_exists():
+            self.root.after(0, lambda: self.progress_dialog.set_status(text))
+
+    def progress_append_log(self, message, level="normal"):
+        if self.progress_dialog and self.progress_dialog.winfo_exists():
+            self.root.after(0, lambda: self.progress_dialog.append_log(message, level))
+
+    def progress_set_value(self, value, total=None):
+        if self.progress_dialog and self.progress_dialog.winfo_exists():
+            self.root.after(0, lambda: self.progress_dialog.set_progress(value, total))
 
     def render_apps(self):
         """Reconstruye la lista de aplicaciones en checkboxes."""
@@ -427,12 +461,41 @@ class AutoInstallerApp:
         self.btn_run.config(state=state)
 
     def show_summary(self, summary_text: str):
+        self.close_progress_dialog()
         messagebox.showinfo("Resumen final", summary_text)
+    
+    def show_progress_dialog(self):
+        if self.progress_dialog is None or not self.progress_dialog.winfo_exists():
+            self.progress_dialog = InstallProgressDialog(self.root)
+
+    def close_progress_dialog(self):
+        if self.progress_dialog and self.progress_dialog.winfo_exists():
+            self.progress_dialog.destroy()
+            self.progress_dialog = None
+
+    def progress_set_app(self, text):
+        if self.progress_dialog and self.progress_dialog.winfo_exists():
+            self.root.after(0, lambda: self.progress_dialog.set_current_app(text))
+
+    def progress_set_status(self, text):
+        if self.progress_dialog and self.progress_dialog.winfo_exists():
+            self.root.after(0, lambda: self.progress_dialog.set_status(text))
+
+    def progress_append_log(self, message, level="normal"):
+        if self.progress_dialog and self.progress_dialog.winfo_exists():
+            self.root.after(0, lambda: self.progress_dialog.append_log(message, level))
+
+    def progress_set_value(self, value, total=None):
+        if self.progress_dialog and self.progress_dialog.winfo_exists():
+            self.root.after(0, lambda: self.progress_dialog.set_progress(value, total))
 
     def start_installation(self):
         if not self.current_apps:
             messagebox.showwarning("Selección requerida", "Debe seleccionar un perfil o aplicaciones.")
+            self.show_progress_dialog()
             return
+        
+        self.show_progress_dialog()
 
         threading.Thread(
             target=self.installer.execute_apps,
