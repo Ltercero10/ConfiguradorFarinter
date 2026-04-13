@@ -6,6 +6,8 @@ import tempfile
 import time
 import subprocess
 
+from utils.subprocess_utils import hidden_run
+
 def stage_to_temp(src_path: str) -> str:
     """
     Copia un archivo a la carpeta temporal y lo desbloquea (PowerShell)
@@ -22,7 +24,7 @@ def stage_to_temp(src_path: str) -> str:
 
     # Desbloquear archivo en Windows (quitar marca de "procedente de otro equipo")
     try:
-        subprocess.run(
+        hidden_run(
             [
                 "powershell",
                 "-NoProfile",

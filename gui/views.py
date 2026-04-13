@@ -344,13 +344,27 @@ def show_applications(app):
     )
     corporativas_frame.pack(side="left", fill="both", expand=True, padx=(8, 0), anchor="n")
 
+    especiales_frame = tk.LabelFrame(
+        columns_frame,
+        text="Especiales",
+        bg="#ffffff",
+        fg="#1f2937",
+        font=("Segoe UI", 10, "bold"),
+        padx=12,
+        pady=10
+    )
+    especiales_frame.pack(side="left", fill="both", expand=True, padx=(8, 0), anchor="n")
+
     basicas = []
     corporativas = []
+    especiales = []
 
     for app_item in apps:
         categoria = app_item.get("categoria", "basica").lower()
         if categoria == "corporativa":
             corporativas.append(app_item)
+        elif categoria == "especial":
+            especiales.append(app_item)
         else:
             basicas.append(app_item)
 
@@ -371,16 +385,19 @@ def show_applications(app):
             }
 
             item_frame = tk.Frame(parent_frame, bg="#ffffff")
-            item_frame.pack(anchor="w", fill="x", pady=4)
+            item_frame.pack(anchor="w", fill="x", pady=6)
+
+            item_frame.grid_columnconfigure(0, weight=0)
+            item_frame.grid_columnconfigure(1, weight=1)
 
             def on_toggle(current_app=app_item, current_name=nombre):
                 if current_app.get("requiere_pais"):
                     widget = app.app_country_widgets.get(current_name)
                     if widget:
                         if app.app_vars[current_name]["var"].get():
-                            widget.pack(anchor="w", fill="x", pady=(4, 0))
+                            widget.grid()
                         else:
-                            widget.pack_forget()
+                            widget.grid_remove()
                             for pais_var in app.app_country_vars[current_name].values():
                                 pais_var.set(False)
                 app.update_selected_count()
@@ -396,10 +413,13 @@ def show_applications(app):
                 anchor="w",
                 command=on_toggle
             )
-            chk.pack(anchor="w", fill="x")
+            chk.grid(row=0, column=0, sticky="nw", padx=(0, 12))
 
             if app_item.get("requiere_pais"):
                 country_frame = tk.Frame(item_frame, bg="#ffffff")
+                country_frame.grid(row=0, column=1, sticky="nw")
+                country_frame.grid_remove()
+
                 app.app_country_vars[nombre] = {}
 
                 tk.Label(
@@ -408,12 +428,12 @@ def show_applications(app):
                     bg="#ffffff",
                     fg="#374151",
                     font=("Segoe UI", 9, "bold")
-                ).pack(anchor="w", padx=(25, 0), pady=(0, 3))
+                ).pack(anchor="w", pady=(0, 4))
 
                 countries_list_frame = tk.Frame(country_frame, bg="#ffffff")
-                countries_list_frame.pack(anchor="w", padx=(35, 0))
+                countries_list_frame.pack(anchor="w")
 
-                for pais in app_item.get("paises", []):
+                for i, pais in enumerate(app_item.get("paises", [])):
                     pais_var = tk.BooleanVar(value=False)
                     app.app_country_vars[nombre][pais] = pais_var
 
@@ -424,25 +444,15 @@ def show_applications(app):
                         bg="#ffffff",
                         fg="#111827",
                         font=("Segoe UI", 9),
-                        activebackground="#ffffff",
+                        activebackground="#ffffff", 
                         anchor="w"
-                    ).pack(anchor="w")
+                    ).grid(row=i // 2, column=i % 2, sticky="w", padx=(0, 16), pady=2)
 
                 app.app_country_widgets[nombre] = country_frame
+
     build_checkbox_list(basicas_frame, basicas)
     build_checkbox_list(corporativas_frame, corporativas)
-
-    app.selected_count_label = tk.Label(
-        app.content_area,
-        text="Aplicaciones seleccionadas: 0",
-        bg="#ffffff",
-        fg="#374151",
-        font=("Segoe UI", 10, "bold")
-    )
-    app.selected_count_label.pack(anchor="w", pady=(10, 0))
-
-    app.update_selected_count()
-    app.set_status("Vista de aplicaciones")
+    build_checkbox_list(especiales_frame, especiales)
 
 def show_domain(app):
     """Muestra la vista base del módulo de dominio"""

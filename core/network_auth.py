@@ -2,6 +2,7 @@ import subprocess
 from pathlib import Path
 from tkinter import messagebox
 
+from utils.subprocess_utils import hidden_run
 from gui.login_dialog import NetworkLoginDialog
 
 
@@ -19,7 +20,7 @@ def disconnect_share(share_path: str):
     Desconecta una ruta de red si ya existe una sesión previa.
     """
     try:
-        subprocess.run(
+        hidden_run(
             ["net", "use", share_path, "/delete", "/y"],
             capture_output=True,
             text=True,
@@ -45,7 +46,7 @@ def connect_to_share(share_path: str, username: str, password: str, domain: str 
         "/persistent:no"
     ]
 
-    result = subprocess.run(
+    result = hidden_run(
         cmd,
         capture_output=True,
         text=True,

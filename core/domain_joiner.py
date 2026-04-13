@@ -5,6 +5,7 @@ import socket
 import json
 from utils.admin_utils import require_admin
 from utils.system_info import get_system_info
+from utils.subprocess_utils import hidden_run
 
 
 class DomainJoiner:
@@ -14,7 +15,7 @@ class DomainJoiner:
     def _run_powershell(script: str):
         """Ejecuta un script de PowerShell y retorna (ok, stdout, stderr)."""
         try:
-            result = subprocess.run(
+            result = hidden_run(
                 [
                     "powershell",
                     "-NoProfile",

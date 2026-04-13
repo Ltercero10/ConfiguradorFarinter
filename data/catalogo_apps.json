@@ -4,44 +4,7 @@
     {
       "nombre": "LDCOM",
       "tipo": "copy_folder",
-      "base": "instaladores",
-      "categoria": "corporativa",
-      "copiar_a_temp": false,
-      "requiere_pais": true,
-      "paises": [
-        "Honduras",
-        "Nicaragua",
-        "El Salvador",
-        "Costa Rica",
-        "Guatemala"
-      ],
-      "paises_config": {
-        "Honduras": {
-          "origen": "\\\\10.0.5.157\\Soporte\\Instaladores OFICINAS\\Instaladores LDCOM\\Honduras\\Productivo\\LogicalData_HN",
-          "destino": "C:\\Program Files\\LogicalData_HN"
-        },
-        "Nicaragua": {
-          "origen": "\\\\10.0.5.157\\Soporte\\Instaladores OFICINAS\\Instaladores LDCOM\\Nicaragua\\Productivo\\LogicalData_NIC",
-          "destino": "C:\\Program Files\\LogicalData_NIC"
-        },
-        "El Salvador": {
-          "origen": "\\\\10.0.5.157\\Soporte\\Instaladores OFICINAS\\Instaladores LDCOM\\El Salvador\\Productivo\\LogicalData_SV",
-          "destino": "C:\\Program Files\\LogicalData_SV"
-        },
-        "Costa Rica": {
-          "origen": "\\\\10.0.5.157\\Soporte\\Instaladores OFICINAS\\Instaladores LDCOM\\Costa Rica\\Productivo\\LogicalData_CR",
-          "destino": "C:\\Program Files\\LogicalData_CR"
-        },
-        "Guatemala": {
-          "origen": "\\\\10.0.5.157\\Soporte\\Instaladores OFICINAS\\Instaladores LDCOM\\Guatemala\\Productivo\\LogicalData_GT",
-          "destino": "C:\\Program Files\\LogicalData_GT"
-        }
-      }
-    },
-    {
-      "nombre": "LDFAS",
-      "tipo": "copy_folder",
-      "base": "instaladores",
+      "base": "soporte",
       "categoria": "corporativa",
       "copiar_a_temp": false,
       "requiere_pais": true,
@@ -80,7 +43,7 @@
       "tipo": "exe",
       "base": "soporte",
       "categoria": "basica",
-      "ruta": "//10.0.5.157/Soporte/AnyDesk.exe",
+      "ruta": "AnyDesk.exe",
       "args": "",
       "copiar_a_temp": true
     },
@@ -89,7 +52,7 @@
       "tipo": "exe",
       "base": "soporte",
       "categoria": "basica",
-      "ruta": "//10.0.5.157/Soporte/Instaladores OFICINAS/Instaladores LDCOM/Utilitarios (FAVOR NO DEJAR COPIADOS ESTOS ARCHIVOS EN LOS EQUIPOS PRINCIPALMENTE LA CARPETA DE VPN-TIENE CREDENCIALES)/pdf24-creator-10.1.1.exe",
+      "ruta": "Instaladores OFICINAS\\Instaladores LDCOM\\Utilitarios (FAVOR NO DEJAR COPIADOS ESTOS ARCHIVOS EN LOS EQUIPOS PRINCIPALMENTE LA CARPETA DE VPN-TIENE CREDENCIALES)\\pdf24-creator-10.1.1.exe",
       "args": "",
       "copiar_a_temp": true
     },
@@ -98,7 +61,45 @@
       "tipo": "exe",
       "base": "soporte",
       "categoria": "basica",
-      "ruta": "//10.0.5.157/Soporte/Instaladores OFICINAS/Instaladores LDCOM/Utilitarios (FAVOR NO DEJAR COPIADOS ESTOS ARCHIVOS EN LOS EQUIPOS PRINCIPALMENTE LA CARPETA DE VPN-TIENE CREDENCIALES)/CrystalDiskInfo8_9_0a.exe",
+      "ruta": "Instaladores OFICINAS\\Instaladores LDCOM\\Utilitarios (FAVOR NO DEJAR COPIADOS ESTOS ARCHIVOS EN LOS EQUIPOS PRINCIPALMENTE LA CARPETA DE VPN-TIENE CREDENCIALES)\\CrystalDiskInfo8_9_0a.exe",
+      "args": "",
+      "copiar_a_temp": true
+    },
+    {
+      "nombre": "Microsoft Office",
+      "tipo": "special",
+      "categoria": "especial",
+      "special_handler": "office_odt",
+      "base": "soporte",
+      "ruta": "OfficeODT"
+    },
+    {
+      "nombre": "RealVNC",
+      "tipo": "special",
+      "categoria": "especial",
+      "special_handler": "vnc_with_license",
+      "base": "soporte",
+      "ruta": "Instaladores OFICINAS\\Instaladores LDCOM\\Utilitarios (FAVOR NO DEJAR COPIADOS ESTOS ARCHIVOS EN LOS EQUIPOS PRINCIPALMENTE LA CARPETA DE VPN-TIENE CREDENCIALES)\\RealVNC-Enterprise-5.0.3-Keygen_www.PlusCrack.com\\setup.exe",
+      "args": "/silent /suppressmsgboxes /norestart",
+      "post_cmd": "\"C:\\Program Files\\RealVNC\\VNC Server\\vnclicense.exe\" -add X6HWM-HWM2K-2F3AE-X8AF9-AH9RA",
+      "copiar_a_temp": true
+    },
+    {
+      "nombre": "Output Messenger",
+      "tipo": "special",
+      "categoria": "especial",
+      "special_handler": "output_messenger",
+      "base": "soporte",
+      "ruta": "Instaladores OFICINAS\\Instaladores LDCOM\\Utilitarios (FAVOR NO DEJAR COPIADOS ESTOS ARCHIVOS EN LOS EQUIPOS PRINCIPALMENTE LA CARPETA DE VPN-TIENE CREDENCIALES)\\OutputMessengerSetup_64bit (4)\\OutputMessengerSetup_64bit.exe",
+      "args": "/silent /suppressmsgboxes /norestart server=messenger.farinter.com",
+      "copiar_a_temp": true
+    },
+    {
+      "nombre": "VPN WSL",
+      "tipo": "exe",
+      "base": "soporte",
+      "categoria": "basica",
+      "ruta": "//10.0.5.157/Soporte/Instaladores OFICINAS/Instaladores LDCOM/Utilitarios (FAVOR NO DEJAR COPIADOS ESTOS ARCHIVOS EN LOS EQUIPOS PRINCIPALMENTE LA CARPETA DE VPN-TIENE CREDENCIALES)/VPN (FAVOR NO DEJAR COPIADOS ESTOS ARCHIVOS EN EQUIPOS)/WG-MVPN-SSL_12_11_2.exe",
       "args": "",
       "copiar_a_temp": true
     }

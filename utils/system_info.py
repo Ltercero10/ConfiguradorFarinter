@@ -11,14 +11,17 @@ import json
 import re
 import tempfile
 from bs4 import BeautifulSoup
+import subprocess
 
+from utils.subprocess_utils import hidden_popen
+from utils.subprocess_utils import hidden_run
 from datetime import datetime
 
 
 def run_cmd(command):
     """Ejecuta un comando y devuelve su salida limpia."""
     try:
-        result = subprocess.run(
+        result = hidden_run(
             command,
             shell=True,
             capture_output=True,
@@ -401,7 +404,7 @@ def generate_battery_report():
     temp_dir = tempfile.gettempdir()
     report_path = os.path.join(temp_dir, "battery_report.html")
 
-    result = subprocess.run(
+    result = hidden_run(
         ["powercfg", "/batteryreport", "/output", report_path],
         capture_output=True,
         text=True,
@@ -605,7 +608,7 @@ def update_drivers():
         dcu_path = next((p for p in possible_paths if os.path.exists(p)), None)
 
         if dcu_path:
-            subprocess.Popen(f'"{dcu_path}" /scan -silent', shell=True)
+            hidden_popen(f'"{dcu_path}" /scan -silent', shell=True)
             return True, "Se inició el escaneo de drivers con Dell Command Update."
 
         return False, "No se encontró Dell Command Update instalado en este equipo."
@@ -841,3 +844,32 @@ def export_system_info_html(info, output_path=None):
         f.write(html)
 
     return output_path
+
+def run_hidden(command, shell=True, capture_output=True, text=True, timeout=None):
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+
+    creationflags = subprocess.CREATE_NO_WINDOW
+
+    return hidden_run(
+        command,
+        shell=shell,
+        capture_output=capture_output,
+        text=text,
+        timeout=timeout,
+        startupinfo=startupinfo,
+        creationflags=creationflags
+    )
+
+def popen_hidden(command, shell=True):
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+
+    creationflags = subprocess.CREATE_NO_WINDOW
+
+    return hidden_popen(
+        command,
+        shell=shell,
+        startupinfo=startupinfo,
+        creationflags=creationflags
+    )

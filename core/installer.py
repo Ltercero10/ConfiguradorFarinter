@@ -11,6 +11,8 @@ import signal
 from core.config import load_config
 from core.logger import global_logger as logger
 from utils.file_utils import stage_to_temp
+from utils.subprocess_utils import hidden_run
+from utils.subprocess_utils import hidden_popen
 
 
 
@@ -106,6 +108,9 @@ class Installer:
             self.callbacks["progress_append_log"](f"Iniciando instalación de {nombre}", "info")
 
         logger.log(f"[{index}/{total_apps}] Procesando: {nombre}")
+
+        if tipo == "special":
+            return self._process_special_app(app, rutas_base)
 
         if app.get("requiere_pais"):
             result = self._process_country_app(app, rutas_base)
@@ -289,6 +294,7 @@ class Installer:
 
             shutil.copytree(origen, destino)
             logger.log(f"Carpeta copiada correctamente a {destino}")
+            self._grant_folder_permissions(destino)
             return "success"
 
         except Exception as e:
@@ -401,7 +407,7 @@ class Installer:
         Retorna: (returncode, timed_out)
         """
         try:
-            process = subprocess.Popen(command, shell=True)
+            process = hidden_popen(command, shell=True)
 
             try:
                 process.wait(timeout=timeout)
@@ -467,7 +473,7 @@ class Installer:
                 )
                 comando = f'msiexec /i "{ruta_ejecucion}" /qn /norestart /l*v "{msi_log}" {args}'.strip()
                 logger.log(f"Log MSI: {msi_log}")
-                result = subprocess.run(comando, shell=True)
+                result = hidden_run(comando, shell=True)
                 code = result.returncode
 
                 if code not in (0, 1641, 3010):
@@ -510,7 +516,7 @@ class Installer:
 
         if os.path.exists(reg_path):
             logger.log("Aplicando configuración adicional (.reg)...")
-            subprocess.run(f'reg import "{reg_path}"', shell=True)
+            hidden_run(f'reg import "{reg_path}"', shell=True)
             logger.log("Configuración adicional aplicada")
         else:
             logger.log(f"Archivo .reg no encontrado: {reg_path}")
@@ -519,7 +525,7 @@ class Installer:
         """Ejecuta un comando post-instalación"""
         logger.log("Ejecutando comando posterior a la instalación...")
         try:
-            result = subprocess.run(post_cmd, shell=True)
+            result = hidden_run(post_cmd, shell=True)
             if result.returncode == 0:
                 logger.log("Post-comando ejecutado correctamente")
             else:
@@ -597,3 +603,134 @@ class Installer:
         """Finaliza la instalación"""
         self.callbacks["set_status"]("Sin aplicaciones seleccionadas")
         self.callbacks["enable_run_button"]()
+    def _grant_folder_permissions(self, path):
+        """Otorga permisos completos a la carpeta copiada."""
+        try:
+            if not os.path.exists(path):
+                logger.log(f"No se puede asignar permisos, la ruta no existe: {path}")
+                return False
+
+            cmd = f'icacls "{path}" /grant Users:(OI)(CI)F /T /C'
+            result = hidden_run(cmd, shell=True)
+
+            if result.returncode == 0:
+                logger.log(f"Permisos otorgados correctamente a: {path}")
+                return True
+
+            logger.log(f"No se pudieron asignar permisos a: {path}")
+            return False
+
+        except Exception as e:
+            logger.log(f"Error asignando permisos a {path}: {e}")
+            return False
+        
+    def _process_special_app(self, app, rutas_base):
+        handler = app.get("special_handler", "").lower()
+
+        if handler == "office_odt":
+            return self._install_office_odt(app, rutas_base)
+        if handler == "vnc_with_license":
+            return self._install_vnc_with_license(app, rutas_base)
+        if handler == "output_messenger":
+            return self._install_output_messenger(app, rutas_base)
+
+        logger.log(f"Handler especial no soportado: {handler}")
+        logger.log("")
+        return "failed"
+
+
+    def _install_office_odt(self, app, rutas_base):
+        base = app.get("base", "")
+        ruta_relativa = app.get("ruta", "")
+
+        office_dir = self._build_path(base, ruta_relativa, rutas_base)
+        if not office_dir:
+            return "skipped"
+
+        setup_path = os.path.join(office_dir, "setup.exe")
+        xml_path = os.path.join(office_dir, "Configuration.xml")
+
+        logger.log(f"Ruta ODT: {office_dir}")
+
+        if not os.path.exists(setup_path):
+            logger.log("No se encontró setup.exe de ODT")
+            logger.log("")
+            return "failed"
+
+        if not os.path.exists(xml_path):
+            logger.log("No se encontró Configuration.xml")
+            logger.log("")
+            return "failed"
+
+        try:
+            logger.log("Iniciando instalación de Office con ODT...")
+            command = f'"{setup_path}" /configure "{xml_path}"'
+            result = subprocess.run(command, shell=True, cwd=office_dir)
+
+            if result.returncode == 0:
+                logger.log("Office instalado correctamente con ODT")
+                logger.log("")
+                return "success"
+
+            logger.log(f"La instalación de Office finalizó con código {result.returncode}")
+            logger.log("")
+            return "failed"
+
+        except Exception as e:
+            logger.log(f"Error instalando Office con ODT: {e}")
+            logger.log("")
+            return "failed"
+        
+    def _install_vnc_with_license(self, app, rutas_base):
+        base = app.get("base", "")
+        ruta_relativa = app.get("ruta", "")
+        tipo = "exe"
+        args = app.get("args", "")
+        post_cmd = app.get("post_cmd", "")
+        copiar_a_temp = app.get("copiar_a_temp", True)
+
+        ruta = self._build_path(base, ruta_relativa, rutas_base)
+        if not ruta:
+            return "skipped"
+
+        logger.log(f"Ruta de VNC: {ruta}")
+
+        if not self._check_source_access(ruta):
+            return "skipped"
+
+        result = self._install_executable(
+            app,
+            ruta,
+            tipo,
+            args,
+            "",
+            post_cmd,
+            copiar_a_temp
+        )
+
+        return result
+    def _install_output_messenger(self, app, rutas_base):
+        base = app.get("base", "")
+        ruta_relativa = app.get("ruta", "")
+        tipo = "exe"
+        args = app.get("args", "")
+        copiar_a_temp = app.get("copiar_a_temp", True)
+
+        ruta = self._build_path(base, ruta_relativa, rutas_base)
+        if not ruta:
+            return "skipped"
+
+        logger.log(f"Ruta de Output Messenger: {ruta}")
+
+        if not self._check_source_access(ruta):
+            return "skipped"
+
+        return self._install_executable(
+            app,
+            ruta,
+            tipo,
+            args,
+            "",
+            "",
+            copiar_a_temp
+        )
