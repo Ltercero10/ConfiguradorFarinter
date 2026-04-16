@@ -15,7 +15,7 @@ APP_NAME = "Configurador Farinter"
 APP_VERSION = "1.0.0"
 GITHUB_OWNER = "Ltercero"
 GITHUB_REPO = "ConfiguradorFarinter"
-ASSET_NAME = "Configurador Farinter.exe"
+ASSET_NAME = "ConfiguradorFarinter.exe"
 
 # Ponelo en None si el repo es público
 GITHUB_TOKEN = None
