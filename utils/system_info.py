@@ -3,7 +3,6 @@
 import platform
 import socket
 import getpass
-import subprocess
 import psutil
 import os
 import webbrowser
@@ -154,7 +153,7 @@ def get_ip_address():
 def detect_manufacturer():
     """Devuelve el fabricante en minúsculas para lógica interna."""
     try:
-        return get_manufacturer().lower()
+        return get_machine_identity()["Fabricante"].lower()
     except Exception:
         return ""
 
@@ -163,44 +162,84 @@ def get_ram_slots_info():
     """
     Devuelve información de slots de RAM.
     Ejemplo: '2 / 4 Slots (Máx. 64.00 GB)'
+    Compatible con Dell, HP y Lenovo.
     """
-    total_slots = "No disponible"
-    used_slots = "No disponible"
-    max_gb = "No disponible"
-
     try:
-        output = run_cmd("wmic memphysical get memorydevices,maxcapacity")
-        lines = [line.strip() for line in output.splitlines() if line.strip()]
+        total_slots = None
+        max_gb = None
 
-        # Buscar la primera línea con dos valores numéricos
-        for line in lines[1:]:
-            parts = line.split()
-            nums = [p for p in parts if p.isdigit()]
-            if len(nums) >= 2:
-                # En muchos equipos WMIC devuelve: MaxCapacity MemoryDevices
-                max_capacity_kb = int(nums[0])
-                total_slots = nums[1]
-                max_gb = f"{(max_capacity_kb / (1024 ** 2)):.2f} GB"
-                break
+        # Intento principal con PowerShell / CIM
+        cmd_array = (
+            'powershell -NoProfile -ExecutionPolicy Bypass -Command '
+            '"Get-CimInstance Win32_PhysicalMemoryArray | '
+            'Select-Object MemoryDevices,MaxCapacity,MaxCapacityEx | '
+            'ConvertTo-Json -Compress"'
+        )
+
+        array_output = run_cmd(cmd_array)
+
+        if array_output:
+            data = json.loads(array_output)
+
+            if isinstance(data, list):
+                data = data[0] if data else {}
+
+            if isinstance(data, dict):
+                memory_devices = data.get("MemoryDevices")
+                max_capacity = data.get("MaxCapacity")
+                max_capacity_ex = data.get("MaxCapacityEx")
+
+                if str(memory_devices).isdigit():
+                    total_slots = int(memory_devices)
+
+                # MaxCapacity normalmente viene en KB y suele ser más estable
+                if str(max_capacity).isdigit() and int(max_capacity) > 0:
+                    max_gb = int(max_capacity) / (1024 ** 2)
+
+                # Solo usar MaxCapacityEx si da un valor razonable
+                elif str(max_capacity_ex).isdigit() and int(max_capacity_ex) > 0:
+                    ex_val = int(max_capacity_ex)
+
+                    # probar como bytes
+                    ex_gb = ex_val / (1024 ** 3)
+
+                    # aceptar solo si parece razonable para RAM máxima real
+                    if ex_gb >= 1:
+                        max_gb = ex_gb
+
+        # Slots usados = cantidad de módulos detectados
+        used_slots = 0
+        ps_modules = get_ram_modules_powershell_json()
+        if ps_modules:
+            used_slots = len([
+                m for m in ps_modules
+                if str(m.get("Capacity", "")).strip().isdigit()
+                and int(str(m.get("Capacity")).strip()) > 0
+            ])
+
+        # Fallback con WMIC si PowerShell no devuelve módulos
+        if used_slots == 0:
+            try:
+                output = run_cmd("wmic memorychip get capacity")
+                lines = [line.strip() for line in output.splitlines() if line.strip()]
+                modules = [line for line in lines[1:] if line.isdigit() and int(line) > 0]
+                used_slots = len(modules)
+            except Exception:
+                pass
+
+        if total_slots is None and used_slots == 0:
+            return "No disponible"
+
+        used_text = str(used_slots) if used_slots > 0 else "No disponible"
+        total_text = str(total_slots) if total_slots is not None else "No disponible"
+
+        if max_gb is not None and max_gb >= 1:
+            return f"{used_text} / {total_text} Slots (Máx. {max_gb:.2f} GB)"
+
+        return f"{used_text} / {total_text} Slots"
+
     except Exception:
-        pass
-
-    try:
-        output = run_cmd("wmic memorychip get capacity")
-        lines = [line.strip() for line in output.splitlines() if line.strip()]
-        modules = [line for line in lines[1:] if line.isdigit()]
-        used_slots = str(len(modules))
-    except Exception:
-        pass
-
-    if total_slots == "No disponible" and used_slots == "No disponible":
         return "No disponible"
-
-    if max_gb != "No disponible":
-        return f"{used_slots} / {total_slots} Slots (Máx. {max_gb})"
-
-    return f"{used_slots} / {total_slots} Slots"
-
 
 
 def get_ram_modules_info():
@@ -481,9 +520,7 @@ def get_system_info():
         disk = psutil.disk_usage("C:\\")
         boot_time = datetime.fromtimestamp(psutil.boot_time()).strftime("%Y-%m-%d %H:%M:%S")
 
-        manufacturer = get_manufacturer()
-        model = get_model()
-        serial = get_pc_serial()
+        identity_info = get_machine_identity()
         ram_slots = get_ram_slots_info()
         ram_modules = get_ram_modules_info()
         battery_info = get_battery_info()
@@ -496,9 +533,9 @@ def get_system_info():
             "Versión": platform.version(),
             "Arquitectura": platform.machine(),
             "Procesador": platform.processor() or "No disponible",
-            "Fabricante": manufacturer,
-            "Modelo": model,
-            "Service Tag / Serial": serial,
+            "Fabricante": identity_info["Fabricante"],
+            "Modelo": identity_info["Modelo"],
+            "Service Tag / Serial": identity_info["Service Tag / Serial"],
             "RAM total": format_gb(vm.total),
             "RAM disponible": format_gb(vm.available),
             "Slots RAM": ram_slots,
@@ -573,8 +610,9 @@ def get_battery_full_info():
             "Vida de batería": "No disponible",
         }
 def open_driver_support_page():
-    manufacturer = detect_manufacturer()
-    serial = get_pc_serial()
+    identity = get_machine_identity()
+    manufacturer = identity["Fabricante"].lower()
+    serial = identity["Service Tag / Serial"]
 
     if "dell" in manufacturer:
         if serial and serial != "No disponible":
@@ -594,7 +632,6 @@ def open_driver_support_page():
     else:
         webbrowser.open("https://www.catalog.update.microsoft.com/")
         return "Fabricante no identificado. Se abrió Microsoft Update Catalog."
-
 
 def update_drivers():
     manufacturer = detect_manufacturer()
@@ -873,3 +910,79 @@ def popen_hidden(command, shell=True):
         startupinfo=startupinfo,
         creationflags=creationflags
     )
+def safe_value(value):
+    if value is None:
+        return "No disponible"
+    value = str(value).strip()
+    if not value or value.lower() in ["", "none", "null"]:
+        return "No disponible"
+    return value
+
+def get_machine_identity():
+    """
+    Obtiene fabricante, modelo y serial/service tag con fallback.
+    Compatible con Dell, HP y Lenovo.
+    """
+    fabricante = "No disponible"
+    modelo = "No disponible"
+    serial = "No disponible"
+
+    # Intento 1: PowerShell / CIM
+    try:
+        cmd = (
+            'powershell -NoProfile -ExecutionPolicy Bypass -Command '
+            '"$cs = Get-CimInstance Win32_ComputerSystem; '
+            '$bios = Get-CimInstance Win32_BIOS; '
+            '[PSCustomObject]@{'
+            'Manufacturer=$cs.Manufacturer; '
+            'Model=$cs.Model; '
+            'Serial=$bios.SerialNumber'
+            '} | ConvertTo-Json -Compress"'
+        )
+
+        output = run_cmd(cmd)
+        if output:
+            data = json.loads(output)
+            fabricante = safe_value(data.get("Manufacturer"))
+            modelo = safe_value(data.get("Model"))
+            serial = safe_value(data.get("Serial"))
+    except Exception:
+        pass
+
+    # Intento 2: WMIC si algo sigue vacío
+    try:
+        if fabricante == "No disponible":
+            out = run_cmd("wmic computersystem get manufacturer /value")
+            for line in out.splitlines():
+                if "Manufacturer=" in line:
+                    fabricante = safe_value(line.split("=", 1)[1])
+                    break
+    except Exception:
+        pass
+
+    try:
+        if modelo == "No disponible":
+            out = run_cmd("wmic computersystem get model /value")
+            for line in out.splitlines():
+                if "Model=" in line:
+                    modelo = safe_value(line.split("=", 1)[1])
+                    break
+    except Exception:
+        pass
+
+    try:
+        if serial == "No disponible":
+            out = run_cmd("wmic bios get serialnumber /value")
+            for line in out.splitlines():
+                if "SerialNumber=" in line:
+                    serial = safe_value(line.split("=", 1)[1])
+                    break
+    except Exception:
+        pass
+
+    return {
+        "Fabricante": fabricante,
+        "Modelo": modelo,
+        "Service Tag / Serial": serial
+    }
+

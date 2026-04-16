@@ -135,10 +135,28 @@ class AutoInstallerApp:
             chk.grid(row=row, column=col, sticky="w", padx=12, pady=6)
 
     def update_selected_count(self):
-        total = sum(1 for item in self.app_vars.values() if item["var"].get())
+        total = 0
+
+        for app_name, item in self.app_vars.items():
+            selected = item["var"].get()
+            app_data = item["app"]
+
+            if selected:
+                if app_data.get("requiere_pais"):
+                    paises = self.app_country_vars.get(app_name, {})
+                    if any(var.get() for var in paises.values()):
+                        total += 1
+                else:
+                    total += 1
 
         if self.selected_count_label is not None:
             self.selected_count_label.config(text=f"Aplicaciones seleccionadas: {total}")
+
+        if self.btn_run is not None:
+            if total == 0:
+                self.btn_run.config(state="disabled", bg="#9ca3af", cursor="arrow")
+            else:
+                self.btn_run.config(state="normal", bg="#2563eb", cursor="hand2")
 
     def open_add_app_dialog(self):
         from gui.components import AppFormDialog
@@ -373,6 +391,7 @@ class AutoInstallerApp:
             font=("Segoe UI", 11, "bold"),
             padx=18,
             pady=10,
+            state="disabled",
             command=self.start_installation
         )
         self.btn_run.pack(side="left")
@@ -492,9 +511,8 @@ class AutoInstallerApp:
     def start_installation(self):
         if not self.current_apps:
             messagebox.showwarning("Selección requerida", "Debe seleccionar un perfil o aplicaciones.")
-            self.show_progress_dialog()
             return
-        
+
         self.show_progress_dialog()
 
         threading.Thread(

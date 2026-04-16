@@ -346,22 +346,19 @@ class Installer:
         logger.log("")
         return "success"
     
-    def _get_silent_candidates(self, app):
+    def _get_silent_candidates(self, app, installer_path=None):
         """
-        Devuelve una lista de argumentos candidatos para instalaciones silenciosas.
-        Si la app ya trae args definidos, no se usa esta lista.
+        Devuelve candidatos silenciosos según el motor detectado.
         """
         nombre = (app.get("nombre") or "").lower()
         ruta = (app.get("ruta") or "").lower()
 
-        # Prioridades por programas comunes conocidos
+        # Reglas conocidas primero
         if "anydesk" in nombre or "anydesk" in ruta:
             return [
                 '--install "C:\\Program Files (x86)\\AnyDesk" --start-with-win --silent',
                 "--silent",
                 "/silent",
-                "/S",
-                ""
             ]
 
         if "chrome" in nombre or "chromesetup" in ruta:
@@ -369,63 +366,77 @@ class Installer:
                 "/silent /install",
                 "/install",
                 "/silent",
-                ""
             ]
 
-        if "realvnc" in nombre or "vnc" in ruta:
+        if "realvnc" in nombre or "vnc" in nombre or "vnc" in ruta:
             return [
                 "/silent /suppressmsgboxes /norestart",
                 "/silent",
-                "/S",
-                ""
             ]
 
         if "outputmessenger" in nombre or "output messenger" in nombre:
             return [
                 "/silent /suppressmsgboxes /norestart",
                 "/silent",
-                "/S",
-                ""
             ]
 
-        # Genéricos para EXE desconocidos
+        engine = self._detect_installer_engine(installer_path or "")
+
+        if engine == "inno":
+            return [
+                "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART",
+                "/SILENT /SUPPRESSMSGBOXES /NORESTART",
+                "/VERYSILENT",
+                "/SILENT",
+            ]
+
+        if engine == "nsis":
+            return [
+                "/S",
+            ]
+
+        if engine == "installshield":
+            return [
+                "/s",
+                "/silent",
+            ]
+
+        if engine == "burn":
+            return [
+                "/quiet",
+                "/passive",
+            ]
+
         return [
             "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART",
-            "/SILENT /SUPPRESSMSGBOXES /NORESTART",
             "/S",
-            "/silent",
             "/quiet",
-            "/q",
-            "-s",
-            ""
         ]
         
 
-    def _run_command_with_timeout(self, command, timeout=20):
+    def _run_command_with_timeout(self, command, timeout=120):
         """
-        Ejecuta un comando y lo corta si excede el tiempo.
-        Retorna: (returncode, timed_out)
+        Ejecuta un comando y mata el árbol completo si se excede el tiempo.
         """
         try:
-            process = hidden_popen(command, shell=True)
+            process = subprocess.Popen(command, shell=True)
 
             try:
                 process.wait(timeout=timeout)
                 return process.returncode, False
+
             except subprocess.TimeoutExpired:
-                logger.log(f"Tiempo excedido ({timeout}s). Intentando finalizar proceso...")
-                try:
-                    process.terminate()
-                except Exception:
-                    pass
+                logger.log(f"Tiempo excedido ({timeout}s). Intentando finalizar árbol de procesos...")
 
                 try:
-                    process.wait(timeout=10)
-                except Exception:
-                    try:
-                        process.kill()
-                    except Exception:
-                        pass
+                    subprocess.run(
+                        ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                        capture_output=True,
+                        text=True,
+                        shell=False
+                    )
+                except Exception as e:
+                    logger.log(f"No se pudo cerrar el árbol del proceso: {e}")
 
                 return -999, True
 
@@ -435,18 +446,20 @@ class Installer:
 
     def _try_exe_silent_install(self, app, ruta_ejecucion, nombre):
         """
-        Prueba varios argumentos comunes para EXE cuando args viene vacío.
+        Prueba argumentos silenciosos según el motor detectado.
         """
-        candidates = self._get_silent_candidates(app)
+        engine = self._detect_installer_engine(ruta_ejecucion)
+        candidates = self._get_silent_candidates(app, ruta_ejecucion)
 
-        logger.log("No se definieron argumentos. Se probarán parámetros comunes automáticamente...")
+        logger.log(f"Motor detectado: {engine}")
+        logger.log("No se definieron argumentos. Se probarán parámetros compatibles...")
 
         for index, candidate in enumerate(candidates, start=1):
             args_label = candidate if candidate else "[sin argumentos]"
             logger.log(f"Intento {index}/{len(candidates)} con argumentos: {args_label}")
 
             command = f'"{ruta_ejecucion}" {candidate}'.strip()
-            code, timed_out = self._run_command_with_timeout(command, timeout=20)
+            code, timed_out = self._run_command_with_timeout(command, timeout=120)
 
             if timed_out:
                 logger.log("El instalador excedió el tiempo permitido. Se probará el siguiente conjunto.")
@@ -460,6 +473,7 @@ class Installer:
             logger.log(f"El intento finalizó con código {code}. Se probará el siguiente conjunto.")
 
         logger.log(f"No se encontró un conjunto de argumentos funcional para {nombre}.")
+        logger.log("Este programa probablemente requiere argumentos específicos o instalación manual.")
         return False
 
     def _run_installer(self, ruta_ejecucion, tipo, args, nombre, app=None):
@@ -488,7 +502,7 @@ class Installer:
             # Si ya viene args definido, respetarlo
             if args and args.strip():
                 command = f'"{ruta_ejecucion}" {args}'.strip()
-                code, timed_out = self._run_command_with_timeout(command, timeout=20)
+                code, timed_out = self._run_command_with_timeout(command, timeout=120)
 
                 if timed_out:
                     logger.log(f"El instalador excedió el tiempo permitido: {nombre}")
@@ -734,3 +748,31 @@ class Installer:
             "",
             copiar_a_temp
         )
+    def _detect_installer_engine(self, installer_path):
+        """
+        Intenta detectar el motor del instalador leyendo strings del binario.
+        Retorna: inno, nsis, installshield, msi, unknown
+        """
+        path_lower = installer_path.lower()
+
+        if path_lower.endswith(".msi"):
+            return "msi"
+
+        try:
+            with open(installer_path, "rb") as f:
+                data = f.read(2 * 1024 * 1024)  # leer hasta 2 MB
+            text = data.decode("latin1", errors="ignore").lower()
+
+            if "inno setup" in text:
+                return "inno"
+            if "nullsoft install system" in text or "nsis" in text:
+                return "nsis"
+            if "installshield" in text:
+                return "installshield"
+            if "wix burn" in text or "burn engine" in text:
+                return "burn"
+
+        except Exception:
+            pass
+
+        return "unknown"

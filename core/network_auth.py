@@ -1,31 +1,58 @@
 import subprocess
 from pathlib import Path
 from tkinter import messagebox
-
-from utils.subprocess_utils import hidden_run
 from gui.login_dialog import NetworkLoginDialog
-
-
-_network_session = {
-    "connected": False,
-    "share": "",
-    "domain": "",
-    "username": "",
-    "password": "",
-}
-
-
 def disconnect_share(share_path: str):
     """
-    Desconecta una ruta de red si ya existe una sesión previa.
+    Desconecta una ruta de red específica si ya existe una sesión previa.
     """
     try:
-        hidden_run(
+        subprocess.run(
             ["net", "use", share_path, "/delete", "/y"],
             capture_output=True,
             text=True,
             shell=False
         )
+    except Exception:
+        pass
+
+
+def disconnect_server_connections(server_host: str):
+    """
+    Desconecta conexiones previas al servidor para evitar error 1219.
+    Ejemplo de server_host: \\\\10.0.5.157
+    """
+    try:
+        result = subprocess.run(
+            ["net", "use"],
+            capture_output=True,
+            text=True,
+            shell=False
+        )
+
+        output = (result.stdout or "") + "\n" + (result.stderr or "")
+        lines = output.splitlines()
+
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+
+            # Buscar recursos UNC activos que apunten al mismo host
+            if server_host.lower() in line.lower():
+                parts = line.split()
+                unc_targets = [p for p in parts if p.startswith("\\\\")]
+
+                for unc in unc_targets:
+                    try:
+                        subprocess.run(
+                            ["net", "use", unc, "/delete", "/y"],
+                            capture_output=True,
+                            text=True,
+                            shell=False
+                        )
+                    except Exception:
+                        pass
     except Exception:
         pass
 
@@ -38,15 +65,13 @@ def connect_to_share(share_path: str, username: str, password: str, domain: str 
     full_user = f"{domain}\\{username}" if domain else username
 
     cmd = [
-        "net",
-        "use",
-        share_path,
+        "net", "use", share_path,
         password,
         f"/user:{full_user}",
         "/persistent:no"
     ]
 
-    result = hidden_run(
+    result = subprocess.run(
         cmd,
         capture_output=True,
         text=True,
@@ -70,26 +95,7 @@ def verify_share_access(share_path: str):
         return False
 
 
-def get_active_network_session():
-    return _network_session.copy()
-
-
-def clear_network_session():
-    global _network_session
-
-    if _network_session["connected"] and _network_session["share"]:
-        disconnect_share(_network_session["share"])
-
-    _network_session = {
-        "connected": False,
-        "share": "",
-        "domain": "",
-        "username": "",
-        "password": "",
-    }
-
-
-def ensure_network_access(root, share_path: str, force_login: bool = False):
+def ensure_network_access(root, share_path: str):
     dialog = NetworkLoginDialog(root, default_share=share_path)
     root.wait_window(dialog)
 
@@ -100,6 +106,20 @@ def ensure_network_access(root, share_path: str, force_login: bool = False):
     domain = dialog.result["domain"]
     username = dialog.result["username"]
     password = dialog.result["password"]
+
+    # Ejemplo: de \\10.0.5.157\Soporte sacar \\10.0.5.157
+    server_host = ""
+    try:
+        if share.startswith("\\\\"):
+            parts = share.split("\\")
+            if len(parts) >= 4:
+                server_host = f"\\\\{parts[2]}"
+    except Exception:
+        server_host = ""
+
+    # Limpiar conexiones previas
+    if server_host:
+        disconnect_server_connections(server_host)
 
     disconnect_share(share)
 
